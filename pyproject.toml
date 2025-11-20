@@ -5,6 +5,7 @@ description = "Add your description here"
 requires-python = ">=3.11"
 dependencies = [
     "aiohttp>=3.13.2",
+    "beautifulsoup4>=4.14.2",
     "discord-py>=2.6.4",
     "python-dotenv>=1.2.1",
     "snscrape>=0.7.0.20230622",

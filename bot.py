@@ -3,16 +3,17 @@ from discord.ext import tasks
 import os
 import json
 import asyncio
-import re
 from datetime import datetime
 from dotenv import load_dotenv
 from zenrows import ZenRowsClient
+from bs4 import BeautifulSoup
+import re
 
 load_dotenv()
 
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 DISCORD_CHANNEL_ID = os.getenv("DISCORD_CHANNEL_ID")
-TWITTER_USERNAME = os.getenv("TWITTER_USERNAME", "elonmusk")
+TWITTER_USERNAME = os.getenv("TWITTER_USERNAME", "NFL")
 ZENROWS_API_KEY = os.getenv("ZENROWS_API_KEY")
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "60"))
 
@@ -91,11 +92,17 @@ class TwitterDiscordBot(discord.Client):
         try:
             url = f"https://twitter.com/{TWITTER_USERNAME}"
             
-            # Use ZenRows to fetch the Twitter page
-            response = self.client.get(url)
+            print(f"🌐 Fetching {url} via ZenRows...")
+            response = self.client.get(url, params={
+                "js_render": "true",
+                "premium_proxy": "true"
+            })
+            
             html = response.text
+            print(f"📄 Received {len(html)} bytes of HTML")
             
             tweets = self.parse_tweets_from_html(html)
+            print(f"✅ Parsed {len(tweets)} tweets from HTML")
             
             if tweets:
                 self.save_last_tweet_id(tweets[0]["id"])
@@ -107,20 +114,72 @@ class TwitterDiscordBot(discord.Client):
             return []
 
     def parse_tweets_from_html(self, html):
-        """Parse tweets from Twitter HTML"""
+        """Parse tweets from Twitter HTML using BeautifulSoup"""
         tweets = []
         
-        # Simple regex patterns to extract tweet data (this is a basic approach)
-        # In production, use BeautifulSoup for better parsing
-        tweet_pattern = r'data-testid="tweet"'
-        
-        # Extract tweet blocks
-        if tweet_pattern not in html:
+        try:
+            soup = BeautifulSoup(html, 'html.parser')
+            
+            # Find all tweet containers
+            tweet_containers = soup.find_all('article', attrs={'data-testid': 'tweet'})
+            
+            print(f"🔍 Found {len(tweet_containers)} tweet containers")
+            
+            for container in tweet_containers[:10]:  # Get top 10
+                try:
+                    # Extract tweet ID
+                    tweet_link = container.find('a', href=re.compile(r'/\w+/status/\d+'))
+                    if not tweet_link:
+                        continue
+                    
+                    # Get tweet ID from URL
+                    match = re.search(r'/status/(\d+)', tweet_link['href'])
+                    if not match:
+                        continue
+                    
+                    tweet_id = match.group(1)
+                    
+                    # Skip if we've seen this tweet before
+                    if self.last_tweet_id and int(tweet_id) <= int(self.last_tweet_id):
+                        continue
+                    
+                    # Extract tweet text
+                    text_elem = container.find('div', {'data-testid': 'tweetText'})
+                    text = text_elem.get_text(strip=True) if text_elem else ""
+                    
+                    if not text:
+                        continue
+                    
+                    # Extract media URL if present
+                    media_url = None
+                    img = container.find('img', {'alt': re.compile(r'Image')})
+                    if img:
+                        media_url = img.get('src')
+                    
+                    # Look for video in iframe or video tags
+                    if not media_url:
+                        video = container.find('video')
+                        if video:
+                            source = video.find('source')
+                            if source:
+                                media_url = source.get('src')
+                    
+                    tweets.append({
+                        'id': tweet_id,
+                        'content': text,
+                        'url': f"https://twitter.com/{TWITTER_USERNAME}/status/{tweet_id}",
+                        'media_url': media_url
+                    })
+                    
+                except Exception as e:
+                    print(f"⚠️ Error parsing individual tweet: {e}")
+                    continue
+            
+            return list(reversed(tweets))  # Reverse to get oldest first
+            
+        except Exception as e:
+            print(f"❌ Error parsing HTML: {e}")
             return []
-        
-        # For now, return empty - ZenRows might need better parsing
-        # This would require more complex HTML parsing with BeautifulSoup
-        return []
 
     async def post_tweet_to_discord(self, tweet):
         try:

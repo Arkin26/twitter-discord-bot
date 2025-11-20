@@ -224,72 +224,65 @@
 #     bot = TwitterDiscordBot()
 #     bot.run(DISCORD_BOT_TOKEN)
 
-import discord
-from discord.ext import tasks
-import os
-import json
-import asyncio
-import feedparser
-from datetime import datetime
-from dotenv import load_dotenv
+    import discord
+    from discord.ext import tasks
+    import os
+    import json
+    import asyncio
+    import aiohttp
+    from datetime import datetime
+    from dotenv import load_dotenv
 
-load_dotenv()
+    load_dotenv()
 
-DISCORD_BOT_TOKEN = os.getenv('DISCORD_BOT_TOKEN')
-DISCORD_CHANNEL_ID = os.getenv('DISCORD_CHANNEL_ID')
-TWITTER_USERNAME = os.getenv('TWITTER_USERNAME', 'elonmusk')
-POLL_INTERVAL_SECONDS = int(os.getenv('POLL_INTERVAL_SECONDS', '60'))
+    DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+    DISCORD_CHANNEL_ID = os.getenv("DISCORD_CHANNEL_ID")
+    TWITTER_USERNAME = os.getenv("TWITTER_USERNAME", "elonmusk")
+    POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "60"))
 
-LAST_TWEET_FILE = 'last_tweet.json'
+    API_BASE_URL = os.getenv("API_BASE_URL")   # <-- your backend URL
 
-# Multiple Nitter instances for reliability
-NITTER_INSTANCES = [
-    "https://nitter.net",
-    "https://nitter.cz",
-    "https://nitter.fly.dev",
-]
+    LAST_TWEET_FILE = "last_tweet.json"
 
-def get_nitter_rss_url(username):
-    for base in NITTER_INSTANCES:
-        return f"{base}/{username}/rss"
 
-class TwitterDiscordBot(discord.Client):
-    def __init__(self):
-        intents = discord.Intents.default()
-        super().__init__(intents=intents)
+    class TwitterDiscordBot(discord.Client):
+        def __init__(self):
+            intents = discord.Intents.default()
+            super().__init__(intents=intents)
 
-        self.channel = None
-        self.last_tweet_id = self.load_last_tweet_id()
+            self.channel = None
+            self.last_tweet_id = self.load_last_tweet_id()
 
-    def load_last_tweet_id(self):
-        if os.path.exists(LAST_TWEET_FILE):
-            with open(LAST_TWEET_FILE, "r") as f:
-                return json.load(f).get("last_tweet_id")
-        return None
+        def load_last_tweet_id(self):
+            if os.path.exists(LAST_TWEET_FILE):
+                with open(LAST_TWEET_FILE, "r") as f:
+                    return json.load(f).get("last_tweet_id")
+            return None
 
-    def save_last_tweet_id(self, tweet_id):
-        with open(LAST_TWEET_FILE, "w") as f:
-            json.dump({"last_tweet_id": tweet_id}, f)
-        self.last_tweet_id = tweet_id
+        def save_last_tweet_id(self, tweet_id):
+            with open(LAST_TWEET_FILE, "w") as f:
+                json.dump({"last_tweet_id": tweet_id}, f)
+            self.last_tweet_id = tweet_id
 
-    async def on_ready(self):
-        print(f"✅ Logged in as {self.user}")
+        async def on_ready(self):
+            print(f"✅ Logged in as {self.user}")
 
-        self.channel = self.get_channel(int(DISCORD_CHANNEL_ID))
-        if not self.channel:
-            print("❌ Channel not found")
-            return
+            self.channel = self.get_channel(int(DISCORD_CHANNEL_ID))
+            if not self.channel:
+                print("❌ Channel not found")
+                return
 
-        print(f"📡 Monitoring @{TWITTER_USERNAME} via Nitter RSS")
-        self.check_tweets.start()
+            print(f"📡 Monitoring Twitter @{TWITTER_USERNAME}")
+            print(f"🌐 Using backend: {API_BASE_URL}")
+            print(f"⏱️ Poll interval: {POLL_INTERVAL_SECONDS}s")
 
-    @tasks.loop(seconds=POLL_INTERVAL_SECONDS)
-    async def check_tweets(self):
-        print("🔍 Checking Nitter RSS…")
+            self.check_tweets.start()
 
-        try:
+        @tasks.loop(seconds=POLL_INTERVAL_SECONDS)
+        async def check_tweets(self):
+            print("🔍 Checking for new tweets…")
+
             tweets = await self.get_new_tweets()
-
             if not tweets:
                 print("📭 No new tweets")
                 return
@@ -299,63 +292,67 @@ class TwitterDiscordBot(discord.Client):
                 await self.post_tweet_to_discord(tweet)
                 await asyncio.sleep(1)
 
-        except Exception as e:
-            print(f"⚠️ Error: {e}")
+        @check_tweets.before_loop
+        async def before_check_tweets(self):
+            await self.wait_until_ready()
 
-    async def get_new_tweets(self):
-        rss_url = get_nitter_rss_url(TWITTER_USERNAME)
-        feed = feedparser.parse(rss_url)
+        async def get_new_tweets(self):
+            url = f"{API_BASE_URL}/tweets?user={TWITTER_USERNAME}"
 
-        new_tweets = []
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url) as resp:
+                        data = await resp.json()
+            except Exception as e:
+                print(f"❌ API fetch failed: {e}")
+                return []
 
-        for entry in feed.entries[:10]:  # Look at last 10 tweets
-            tweet_id = entry.id.split("/")[-1]
+            tweets_raw = data.get("tweets", [])
+            tweets_new = []
 
-            if self.last_tweet_id and int(tweet_id) <= int(self.last_tweet_id):
-                break
+            for t in tweets_raw[:10]:
+                if self.last_tweet_id and int(t["id"]) <= int(self.last_tweet_id):
+                    break
 
-            content = entry.title
-            link = entry.link
-            published = datetime(*entry.published_parsed[:6])
+                media_url = None
+                if t["media"] and len(t["media"]) > 0:
+                    media_url = t["media"][0]
 
-            # Extract media if available
-            media_url = None
-            if "media_content" in entry:
-                if len(entry.media_content) > 0:
-                    media_url = entry.media_content[0].get("url")
+                tweets_new.append({
+                    "id": t["id"],
+                    "content": t["text"],
+                    "url": t["url"],
+                    "date": datetime.fromisoformat(t["date"]),
+                    "media_url": media_url
+                })
 
-            new_tweets.append({
-                "id": tweet_id,
-                "content": content,
-                "url": link,
-                "date": published,
-                "media_url": media_url,
-            })
+            if tweets_new:
+                self.save_last_tweet_id(tweets_new[0]["id"])
 
-        if new_tweets:
-            self.save_last_tweet_id(new_tweets[0]["id"])
+            return list(reversed(tweets_new))
 
-        return list(reversed(new_tweets))
+        async def post_tweet_to_discord(self, tweet):
+            embed = discord.Embed(
+                description=tweet["content"],
+                color=0x1DA1F2,
+                timestamp=tweet["date"],
+                url=tweet["url"]
+            )
 
-    async def post_tweet_to_discord(self, tweet):
-        embed = discord.Embed(
-            description=tweet["content"],
-            color=0x1DA1F2,
-            timestamp=tweet["date"],
-            url=tweet["url"]
-        )
+            embed.set_author(
+                name=f"@{TWITTER_USERNAME}",
+                url=f"https://twitter.com/{TWITTER_USERNAME}",
+            )
 
-        embed.set_author(
-            name=f"@{TWITTER_USERNAME}",
-            url=f"https://twitter.com/{TWITTER_USERNAME}",
-        )
-        embed.set_footer(text="Twitter via Nitter RSS")
+            embed.set_footer(text="Fetched via x-scraper backend")
 
-        content = tweet["media_url"] or None
+            content = tweet["media_url"] or None
 
-        await self.channel.send(content=content, embed=embed)
-        print(f"✅ Posted tweet {tweet['id']}")
+            await self.channel.send(content=content, embed=embed)
+            print(f"✅ Posted tweet {tweet['id']} to Discord")
 
-if __name__ == "__main__":
-    bot = TwitterDiscordBot()
-    bot.run(DISCORD_BOT_TOKEN)
+
+    if __name__ == "__main__":
+        bot = TwitterDiscordBot()
+        bot.run(DISCORD_BOT_TOKEN)
+

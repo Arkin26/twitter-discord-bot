@@ -11,8 +11,18 @@ let browser = null;
 async function initBrowser() {
   if (browser) return browser;
   
+  // Use system chromium if available, fallback to puppeteer's bundled version
+  let executablePath = undefined;
+  try {
+    const { execSync } = await import('child_process');
+    executablePath = execSync('which chromium').toString().trim();
+  } catch {
+    console.log('Using Puppeteer bundled Chromium');
+  }
+  
   browser = await puppeteer.launch({
-    headless: true,
+    headless: 'new',
+    executablePath: executablePath || undefined,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',

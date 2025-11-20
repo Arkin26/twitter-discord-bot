@@ -88,11 +88,11 @@ class TwitterDiscordBot(discord.Client):
         await self.wait_until_ready()
 
     async def get_new_tweets(self):
-        """Fetch tweets with fallback methods"""
-        # Rate limit - wait at least 5 seconds between requests
+        """Fetch tweets with ZenRows optimization"""
+        # Rate limit - wait at least 10 seconds between requests
         now = time.time()
-        if now - self.last_fetch_time < 5:
-            await asyncio.sleep(5 - (now - self.last_fetch_time))
+        if now - self.last_fetch_time < 10:
+            await asyncio.sleep(10 - (now - self.last_fetch_time))
         self.last_fetch_time = time.time()
 
         if not self.zenrows_client:
@@ -103,51 +103,40 @@ class TwitterDiscordBot(discord.Client):
             print(f"🌐 Fetching tweets from @{TWITTER_USERNAME}...")
             url = f"https://twitter.com/{TWITTER_USERNAME}"
             
-            # Try ZenRows with aggressive parameters
-            print(f"📤 Requesting via ZenRows...")
-            try:
-                response = self.zenrows_client.get(url, params={
-                    "js_render": "true",
-                    "premium_proxy": "true",
-                    "wait_for": "article",  # Wait for article elements to load
-                    "render_js": "true",
-                    "auto_parse": "false"
-                })
-                
-                html = response.text
-                print(f"📄 Received {len(html)} bytes")
-                
-                tweets = self.parse_tweets(html)
-                if tweets:
-                    print(f"✅ Found {len(tweets)} tweets")
-                    self.save_last_tweet_id(tweets[0]["id"])
-                    return tweets
-            except Exception as ze:
-                print(f"⚠️ ZenRows error: {ze}")
-            
-            # Fallback: Try regular requests with browser headers
-            print("🔄 Trying fallback method with browser headers...")
+            # Try ZenRows with optimized parameters for Twitter rendering
+            print(f"📤 Requesting via ZenRows with full rendering...")
             try:
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.5',
-                    'Connection': 'keep-alive',
                 }
                 
-                session = requests.Session()
-                resp = session.get(url, headers=headers, timeout=10)
-                resp.raise_for_status()
+                # Use all ZenRows parameters to maximize content rendering
+                response = self.zenrows_client.get(
+                    url,
+                    headers=headers,
+                    params={
+                        "js_render": "true",
+                        "premium_proxy": "true",
+                        "js_scenario": "default",
+                        "wait": "8000",  # Wait 8 seconds for JS to fully render
+                        "render_js": "true",
+                        "proxy_rotation": "true",
+                        "block_resources": "false"
+                    }
+                )
                 
-                print(f"📄 Fallback received {len(resp.text)} bytes")
-                tweets = self.parse_tweets(resp.text)
+                html = response.text
+                print(f"📄 ZenRows received {len(html)} bytes")
                 
-                if tweets:
-                    print(f"✅ Found {len(tweets)} tweets via fallback")
-                    self.save_last_tweet_id(tweets[0]["id"])
-                    return tweets
-            except Exception as fe:
-                print(f"⚠️ Fallback error: {fe}")
+                if len(html) > 5000:  # Only process if substantial HTML
+                    tweets = self.parse_tweets(html)
+                    if tweets:
+                        print(f"✅ Found {len(tweets)} tweets via ZenRows")
+                        self.save_last_tweet_id(tweets[0]["id"])
+                        return tweets
+                        
+            except Exception as ze:
+                print(f"⚠️ ZenRows error: {ze}")
             
             return []
 
@@ -156,71 +145,96 @@ class TwitterDiscordBot(discord.Client):
             return []
 
     def parse_tweets(self, html):
-        """Parse tweets from HTML content"""
+        """Parse tweets from HTML content with multiple fallback strategies"""
         tweets = []
         
         try:
             soup = BeautifulSoup(html, 'html.parser')
             
-            # Method 1: Look for tweet links
-            tweet_links = soup.find_all('a', href=re.compile(r'/\w+/status/\d+'))
-            print(f"🔍 Found {len(tweet_links)} tweet links")
+            # Method 1: Look for article tags with data-testid
+            articles = soup.find_all('article', attrs={'data-testid': 'tweet'})
+            print(f"🔍 Found {len(articles)} article[data-testid=tweet]")
             
-            if tweet_links:
+            # Method 2: Just find all article tags
+            if not articles:
+                articles = soup.find_all('article')
+                print(f"🔍 Found {len(articles)} plain article tags")
+            
+            # Method 3: Find divs with role=article
+            if not articles:
+                articles = soup.find_all('div', attrs={'role': 'article'})
+                print(f"🔍 Found {len(articles)} div[role=article]")
+            
+            # Extract tweets from articles
+            if articles:
                 seen_ids = set()
-                for link in tweet_links[:20]:
+                for article in articles[:10]:
+                    # Look for status link in article
+                    link = article.find('a', href=re.compile(r'/status/\d+'))
+                    if not link:
+                        continue
+                    
                     href = link.get('href', '')
                     match = re.search(r'/status/(\d+)', href)
                     if not match:
                         continue
                     
                     tweet_id = match.group(1)
-                    if tweet_id in seen_ids:
+                    if tweet_id in seen_ids or (self.last_tweet_id and int(tweet_id) <= int(self.last_tweet_id)):
                         continue
                     seen_ids.add(tweet_id)
                     
-                    if self.last_tweet_id and int(tweet_id) <= int(self.last_tweet_id):
-                        continue
+                    # Extract tweet text from article
+                    text_div = article.find('div', attrs={'data-testid': 'tweetText'})
+                    if not text_div:
+                        text_div = article.find('div', attrs={'lang': True})
                     
-                    # Get text from parent container
-                    parent = link.find_parent(['article', 'div'])
                     text = ""
-                    if parent:
-                        text = parent.get_text(strip=True, separator=' ')[:280]
+                    if text_div:
+                        text = text_div.get_text(strip=True)[:280]
+                    else:
+                        # Fallback: get all text but filter out UI elements
+                        full_text = article.get_text(strip=True, separator=' ')
+                        # Keep only first 280 chars that look like tweet content
+                        text = full_text[:500]
                     
-                    if not text or len(text) < 5:
-                        text = f"Tweet from @{TWITTER_USERNAME}"
-                    
-                    tweets.append({
-                        'id': tweet_id,
-                        'content': text,
-                        'url': f"https://twitter.com/{TWITTER_USERNAME}/status/{tweet_id}",
-                        'media_url': None
-                    })
-            
-            # Method 2: Search for tweet IDs in page text as backup
-            if not tweets:
-                print("🔎 Searching for tweet IDs in page content...")
-                all_text = soup.get_text()
-                tweet_ids = re.findall(r'(?:status|/|:)(\d{16,20})', all_text)
-                
-                if tweet_ids:
-                    print(f"📍 Found {len(set(tweet_ids))} potential tweet IDs")
-                    for tweet_id in list(set(tweet_ids))[:5]:
-                        if self.last_tweet_id and int(tweet_id) <= int(self.last_tweet_id):
-                            continue
-                        
+                    if text and len(text) > 5:
                         tweets.append({
                             'id': tweet_id,
-                            'content': f"New tweet from @{TWITTER_USERNAME}",
+                            'content': text,
                             'url': f"https://twitter.com/{TWITTER_USERNAME}/status/{tweet_id}",
                             'media_url': None
                         })
             
+            # Fallback: Search for tweet URLs anywhere in HTML
+            if not tweets:
+                print("🔎 Fallback: Searching for tweet URLs in HTML...")
+                for link in soup.find_all('a', href=re.compile(r'/status/\d+')):
+                    href = link.get('href', '')
+                    match = re.search(r'/status/(\d+)', href)
+                    if not match:
+                        continue
+                    
+                    tweet_id = match.group(1)
+                    if self.last_tweet_id and int(tweet_id) <= int(self.last_tweet_id):
+                        continue
+                    
+                    tweets.append({
+                        'id': tweet_id,
+                        'content': f"Tweet from @{TWITTER_USERNAME}",
+                        'url': f"https://twitter.com/{TWITTER_USERNAME}/status/{tweet_id}",
+                        'media_url': None
+                    })
+                    if len(tweets) >= 5:
+                        break
+            
+            print(f"💾 Extracted {len(tweets)} tweets total")
             return list(reversed(tweets))[:10]
         
         except Exception as e:
             print(f"❌ Error parsing tweets: {e}")
+            import traceback
+            traceback.print_exc()
             return []
 
     async def post_tweet_to_discord(self, tweet):

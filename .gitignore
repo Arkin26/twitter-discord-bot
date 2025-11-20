@@ -1,8 +1,11 @@
-node_modules/
 .env
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
 .DS_Store
 *.log
-tweets.json
+last_tweet.json
+__pycache__/
+*.py[cod]
+*$py.class
+.pythonlibs/
+.uv/
+uv.lock
+.python-version

@@ -9,6 +9,8 @@ dependencies = [
     "discord-py>=2.6.4",
     "python-dotenv>=1.2.1",
     "requests>=2.32.5",
+    "selenium>=4.38.0",
     "snscrape>=0.7.0.20230622",
+    "webdriver-manager>=4.0.2",
     "zenrows>=1.4.0",
 ]

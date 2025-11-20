@@ -5,9 +5,11 @@ import json
 import asyncio
 from datetime import datetime
 from dotenv import load_dotenv
-import requests
-from bs4 import BeautifulSoup
-import re
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.options import Options
 import time
 
 load_dotenv()
@@ -19,14 +21,6 @@ POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "60"))
 
 LAST_TWEET_FILE = "last_tweet.json"
 
-# Public Nitter instances (lightweight Twitter mirrors)
-NITTER_INSTANCES = [
-    "https://nitter.net",
-    "https://nitter.1d4.us",
-    "https://nitter.poast.org",
-    "https://nitter.privacydev.net",
-]
-
 
 class TwitterDiscordBot(discord.Client):
     def __init__(self):
@@ -35,8 +29,7 @@ class TwitterDiscordBot(discord.Client):
         
         self.channel = None
         self.last_tweet_id = self.load_last_tweet_id()
-        self.session = requests.Session()
-        self.current_nitter_index = 0
+        self.driver = None
 
     def load_last_tweet_id(self):
         if os.path.exists(LAST_TWEET_FILE):
@@ -55,6 +48,32 @@ class TwitterDiscordBot(discord.Client):
         except Exception as e:
             print(f"⚠️ Error saving last tweet: {e}")
 
+    def setup_driver(self):
+        """Setup Selenium Chrome driver with headless mode"""
+        chrome_options = Options()
+        chrome_options.add_argument("--headless")
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+        chrome_options.add_argument("--disable-gpu")
+        chrome_options.add_argument("--window-size=1920,1080")
+        chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        
+        try:
+            self.driver = webdriver.Chrome(options=chrome_options)
+            print("✅ Selenium Chrome driver initialized")
+        except Exception as e:
+            print(f"❌ Failed to initialize Chrome driver: {e}")
+            self.driver = None
+
+    def close_driver(self):
+        """Close the Selenium driver"""
+        if self.driver:
+            try:
+                self.driver.quit()
+                self.driver = None
+            except:
+                pass
+
     async def on_ready(self):
         print(f"✅ Logged in as {self.user}")
 
@@ -70,9 +89,10 @@ class TwitterDiscordBot(discord.Client):
             return
 
         print(f"📡 Monitoring Twitter @{TWITTER_USERNAME}")
-        print(f"🔑 Using Nitter (FREE - no API keys needed)")
+        print(f"🔑 Using Selenium Browser Automation")
         print(f"⏱️ Poll interval: {POLL_INTERVAL_SECONDS}s")
-
+        
+        self.setup_driver()
         self.check_tweets.start()
 
     @tasks.loop(seconds=POLL_INTERVAL_SECONDS)
@@ -94,86 +114,62 @@ class TwitterDiscordBot(discord.Client):
         await self.wait_until_ready()
 
     async def get_new_tweets(self):
-        """Fetch tweets from Nitter (lightweight Twitter mirror)"""
-        for instance_idx, nitter_base in enumerate(NITTER_INSTANCES):
-            try:
-                url = f"{nitter_base}/{TWITTER_USERNAME}"
-                print(f"🌐 Trying Nitter instance: {nitter_base}")
-                
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.5',
-                }
-                
-                response = self.session.get(url, headers=headers, timeout=10)
-                response.raise_for_status()
-                
-                print(f"✅ Got response from {nitter_base}")
-                tweets = self.parse_nitter_html(response.text)
-                
-                if tweets:
-                    print(f"✅ Found {len(tweets)} tweets!")
-                    self.save_last_tweet_id(tweets[0]["id"])
-                    self.current_nitter_index = instance_idx
-                    return tweets
-                    
-            except Exception as e:
-                print(f"⚠️ Failed with {nitter_base}: {str(e)[:50]}")
-                time.sleep(1)
-                continue
-        
-        print("❌ All Nitter instances failed")
-        return []
+        """Fetch tweets using Selenium browser automation"""
+        if not self.driver:
+            print("❌ Selenium driver not initialized")
+            return []
 
-    def parse_nitter_html(self, html):
-        """Parse tweets from Nitter HTML"""
-        tweets = []
-        
         try:
-            soup = BeautifulSoup(html, 'html.parser')
+            print(f"🌐 Loading Twitter profile for @{TWITTER_USERNAME}...")
+            url = f"https://twitter.com/{TWITTER_USERNAME}"
             
-            # Find tweet items in Nitter format
-            # Nitter uses 'class="tweet' for tweet containers
-            tweet_divs = soup.find_all('div', class_='timeline-item')
-            print(f"🔍 Found {len(tweet_divs)} tweet items")
+            self.driver.get(url)
             
-            if not tweet_divs:
-                # Try alternative Nitter structure
-                tweet_divs = soup.find_all('div', class_='tweet')
+            # Wait for tweets to load (max 10 seconds)
+            print("⏳ Waiting for tweets to load...")
+            wait = WebDriverWait(self.driver, 10)
             
-            for tweet_div in tweet_divs[:15]:  # Check up to 15 tweets
+            try:
+                # Wait for article elements (tweets)
+                wait.until(EC.presence_of_all_elements_located((By.TAG_NAME, "article")))
+            except:
+                print("⚠️ Timeout waiting for tweets")
+            
+            # Extract tweets
+            tweets = []
+            articles = self.driver.find_elements(By.TAG_NAME, "article")
+            print(f"🔍 Found {len(articles)} article elements")
+            
+            for article in articles[:10]:
                 try:
                     # Get tweet link
-                    link = tweet_div.find('a', href=re.compile(r'/\w+/status/\d+'))
-                    if not link:
+                    links = article.find_elements(By.TAG_NAME, "a")
+                    
+                    tweet_id = None
+                    for link in links:
+                        href = link.get_attribute("href")
+                        if href and "/status/" in href:
+                            # Extract tweet ID
+                            parts = href.split("/status/")
+                            if len(parts) > 1:
+                                tweet_id = parts[1].split("?")[0].split("/")[0]
+                                break
+                    
+                    if not tweet_id:
                         continue
                     
-                    href = link.get('href', '')
-                    match = re.search(r'/status/(\d+)', href)
-                    if not match:
-                        continue
-                    
-                    tweet_id = match.group(1)
-                    
-                    # Skip if already processed
+                    # Skip if already seen
                     if self.last_tweet_id and int(tweet_id) <= int(self.last_tweet_id):
                         continue
                     
                     # Get tweet text
-                    text_elem = tweet_div.find('div', class_='tweet-text')
-                    if not text_elem:
-                        text_elem = tweet_div.find('p', class_='tweet-text')
-                    
+                    text_divs = article.find_elements(By.CSS_SELECTOR, "[data-testid='tweetText']")
                     text = ""
-                    if text_elem:
-                        text = text_elem.get_text(strip=True)[:280]
-                    
-                    # Clean whitespace
-                    text = ' '.join(text.split())
+                    if text_divs:
+                        text = text_divs[0].text[:280]
                     
                     if not text or len(text) < 3:
-                        continue
+                        text = f"Tweet from @{TWITTER_USERNAME}"
                     
                     tweets.append({
                         'id': tweet_id,
@@ -184,11 +180,19 @@ class TwitterDiscordBot(discord.Client):
                 except Exception as e:
                     continue
             
-            print(f"💾 Extracted {len(tweets)} valid tweets")
-            return list(reversed(tweets))[:5]  # Return up to 5 latest
+            print(f"✅ Extracted {len(tweets)} tweets")
             
+            if tweets:
+                self.save_last_tweet_id(tweets[0]["id"])
+                return list(reversed(tweets))[:5]
+            
+            return []
+
         except Exception as e:
-            print(f"❌ Parse error: {e}")
+            print(f"❌ Error: {str(e)[:100]}")
+            # Reinitialize driver on error
+            self.close_driver()
+            self.setup_driver()
             return []
 
     async def post_tweet_to_discord(self, tweet):
@@ -205,13 +209,17 @@ class TwitterDiscordBot(discord.Client):
                 url=f"https://twitter.com/{TWITTER_USERNAME}",
             )
 
-            embed.set_footer(text="Twitter • via Nitter")
+            embed.set_footer(text="Twitter • Selenium")
 
             await self.channel.send(embed=embed)
             print(f"✅ Posted tweet {tweet['id']}")
 
         except Exception as e:
             print(f"❌ Error posting: {e}")
+
+    async def close(self):
+        self.close_driver()
+        await super().close()
 
 
 def validate_config():
@@ -232,7 +240,7 @@ def validate_config():
 
 
 if __name__ == "__main__":
-    print("🚀 Starting Twitter to Discord bot (Nitter)...")
+    print("🚀 Starting Twitter to Discord bot (Selenium)...")
     
     if not validate_config():
         exit(1)

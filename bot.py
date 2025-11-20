@@ -88,11 +88,11 @@ class TwitterDiscordBot(discord.Client):
         await self.wait_until_ready()
 
     async def get_new_tweets(self):
-        """Fetch tweets with ZenRows optimization"""
-        # Rate limit - wait at least 10 seconds between requests
+        """Fetch tweets with optimized ZenRows configuration"""
+        # Rate limit - wait at least 5 seconds between requests
         now = time.time()
-        if now - self.last_fetch_time < 10:
-            await asyncio.sleep(10 - (now - self.last_fetch_time))
+        if now - self.last_fetch_time < 5:
+            await asyncio.sleep(5 - (now - self.last_fetch_time))
         self.last_fetch_time = time.time()
 
         if not self.zenrows_client:
@@ -103,40 +103,53 @@ class TwitterDiscordBot(discord.Client):
             print(f"🌐 Fetching tweets from @{TWITTER_USERNAME}...")
             url = f"https://twitter.com/{TWITTER_USERNAME}"
             
-            # Try ZenRows with optimized parameters for Twitter rendering
-            print(f"📤 Requesting via ZenRows with full rendering...")
+            print(f"📤 Requesting via ZenRows...")
             try:
                 headers = {
                     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.5',
                 }
                 
-                # Use all ZenRows parameters to maximize content rendering
+                # OPTIMAL ZenRows parameters for Twitter based on 2024 best practices
                 response = self.zenrows_client.get(
                     url,
                     headers=headers,
                     params={
-                        "js_render": "true",
-                        "premium_proxy": "true",
-                        "js_scenario": "default",
-                        "wait": "8000",  # Wait 8 seconds for JS to fully render
-                        "render_js": "true",
-                        "proxy_rotation": "true",
-                        "block_resources": "false"
+                        # Core rendering
+                        "js_render": "true",           # MANDATORY for Twitter (5 credits)
+                        "premium_proxy": "true",       # Essential for anti-bot bypass (10-25 credits)
+                        "proxy_country": "us",         # Match geo-location expectations
+                        
+                        # Advanced rendering
+                        "json_response": "true",       # Captures XHR/Fetch requests
+                        "original_status": "true",     # Get original HTTP status
+                        
+                        # Performance tuning
+                        "window_width": "1920",        # Standard browser size
+                        "window_height": "1080",       # Standard browser size
+                        "block_resources": "image",    # Block images to speed up rendering
                     }
                 )
                 
                 html = response.text
                 print(f"📄 ZenRows received {len(html)} bytes")
                 
-                if len(html) > 5000:  # Only process if substantial HTML
+                if len(html) > 2000:  # Minimum for valid Twitter page
                     tweets = self.parse_tweets(html)
                     if tweets:
-                        print(f"✅ Found {len(tweets)} tweets via ZenRows")
+                        print(f"✅ Found {len(tweets)} tweets")
                         self.save_last_tweet_id(tweets[0]["id"])
                         return tweets
+                    else:
+                        print(f"⚠️ HTML received but no tweets parsed. HTML length: {len(html)}")
+                else:
+                    print(f"⚠️ HTML too small ({len(html)} bytes). JS rendering may not be working.")
                         
             except Exception as ze:
                 print(f"⚠️ ZenRows error: {ze}")
+                import traceback
+                traceback.print_exc()
             
             return []
 

@@ -7,6 +7,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 import snscrape.modules.twitter as sntwitter
 import re
+import time
 
 load_dotenv()
 
@@ -86,46 +87,60 @@ class TwitterDiscordBot(discord.Client):
             print(f"🌐 Fetching tweets from @{TWITTER_USERNAME}...")
             
             tweets = []
+            max_retries = 3
+            retry_count = 0
             
-            # Use snscrape to get tweets
-            scraper = sntwitter.TwitterProfileScraper(TWITTER_USERNAME)
-            
-            for i, tweet in enumerate(scraper.get_items()):
-                if i >= 10:  # Get top 10
-                    break
-                
-                tweet_id = str(tweet.id)
-                
-                # Skip if we've seen this tweet before
-                if self.last_tweet_id and int(tweet_id) <= int(self.last_tweet_id):
-                    continue
-                
-                tweet_data = {
-                    'id': tweet_id,
-                    'content': tweet.content[:280] if tweet.content else "",
-                    'url': f"https://twitter.com/{TWITTER_USERNAME}/status/{tweet_id}",
-                    'media_url': None,
-                    'timestamp': tweet.date
-                }
-                
-                # Check for media (photos/videos)
-                if tweet.media:
-                    for media in tweet.media:
-                        if hasattr(media, 'downloadUrl'):
-                            tweet_data['media_url'] = media.downloadUrl
+            while retry_count < max_retries:
+                try:
+                    # Use snscrape to get tweets
+                    scraper = sntwitter.TwitterProfileScraper(TWITTER_USERNAME)
+                    
+                    for i, tweet in enumerate(scraper.get_items()):
+                        if i >= 10:  # Get top 10
                             break
-                
-                tweets.append(tweet_data)
-            
-            print(f"✅ Found {len(tweets)} new tweets")
-            
-            if tweets:
-                self.save_last_tweet_id(tweets[0]["id"])
-            
-            return tweets
+                        
+                        tweet_id = str(tweet.id)
+                        
+                        # Skip if we've seen this tweet before
+                        if self.last_tweet_id and int(tweet_id) <= int(self.last_tweet_id):
+                            continue
+                        
+                        tweet_data = {
+                            'id': tweet_id,
+                            'content': tweet.content[:280] if tweet.content else "",
+                            'url': f"https://twitter.com/{TWITTER_USERNAME}/status/{tweet_id}",
+                            'media_url': None,
+                            'timestamp': tweet.date
+                        }
+                        
+                        # Check for media (photos/videos)
+                        if tweet.media:
+                            for media in tweet.media:
+                                if hasattr(media, 'downloadUrl'):
+                                    tweet_data['media_url'] = media.downloadUrl
+                                    break
+                        
+                        tweets.append(tweet_data)
+                    
+                    print(f"✅ Found {len(tweets)} new tweets")
+                    
+                    if tweets:
+                        self.save_last_tweet_id(tweets[0]["id"])
+                    
+                    return tweets
+                    
+                except Exception as e:
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        wait_time = 2 ** retry_count  # Exponential backoff
+                        print(f"⚠️ Retry {retry_count}/{max_retries} - waiting {wait_time}s before retrying...")
+                        await asyncio.sleep(wait_time)
+                    else:
+                        raise e
 
         except Exception as e:
-            print(f"❌ Error fetching tweets: {e}")
+            print(f"❌ Error fetching tweets (giving up): {e}")
+            print(f"⏸️ Will retry on next check (in {POLL_INTERVAL_SECONDS}s)")
             return []
 
 

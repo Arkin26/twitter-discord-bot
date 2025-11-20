@@ -13,7 +13,7 @@ load_dotenv()
 
 DISCORD_BOT_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 DISCORD_CHANNEL_ID = os.getenv("DISCORD_CHANNEL_ID")
-TWITTER_USERNAME = os.getenv("TWITTER_USERNAME", "nikhilraj_")
+TWITTER_USERNAME = os.getenv("TWITTER_USERNAME", "nikhilraj__")
 ZENROWS_API_KEY = os.getenv("ZENROWS_API_KEY")
 POLL_INTERVAL_SECONDS = int(os.getenv("POLL_INTERVAL_SECONDS", "60"))
 

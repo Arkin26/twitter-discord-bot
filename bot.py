@@ -25,33 +25,33 @@ def load_followed():
 def save_followed(data):
     json.dump(data, open(FOLLOWED_FILE, 'w'), indent=2)
 
-# Discord bot setup
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
-followed = load_followed()
-
-async def scrape_tweets(username):
-    """Use Node.js to scrape tweets via Puppeteer"""
+def scrape_tweets(username):
+    """Synchronously scrape tweets using Node.js"""
     try:
         result = subprocess.run(
-            ['node', '-e', f'''
-import {{ fetchTweets }} from './scraper.js';
-const tweets = await fetchTweets('{username}');
-console.log(JSON.stringify(tweets));
-'''],
+            ['node', 'fetch_tweets.js', username],
             capture_output=True,
             text=True,
             timeout=45
         )
         if result.returncode == 0:
-            return json.loads(result.stdout)
+            try:
+                return json.loads(result.stdout)
+            except:
+                print(f'JSON parse error: {result.stdout}')
+                return []
         else:
             print(f'Scraper error: {result.stderr}')
             return []
     except Exception as e:
-        print(f'Scrape error: {e}')
+        print(f'Scrape exception: {e}')
         return []
+
+# Discord bot setup
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix='!', intents=intents)
+followed = load_followed()
 
 @bot.event
 async def on_ready():
@@ -82,20 +82,20 @@ async def follow(ctx, username: str):
         await ctx.send(f'🔍 Fetching tweets from @{username}...')
         tweets = await asyncio.to_thread(scrape_tweets, username)
         
-        if not tweets:
+        if not tweets or len(tweets) == 0:
             await ctx.send(f'❌ No tweets found for @{username}')
             return
         
         followed[username] = {
-            'lastTweetId': tweets[0]['id'],
+            'lastTweetId': str(tweets[0]['id']),
             'name': username
         }
         save_followed(followed)
-        await ctx.send(f'✅ Following @{username} ({len(tweets)} tweets)')
+        await ctx.send(f'✅ Following @{username} ({len(tweets)} tweets found)')
         print(f'✅ Now following @{username}')
     except Exception as e:
         await ctx.send(f'❌ Error: {str(e)[:80]}')
-        print(f'❌ Error: {e}')
+        print(f'❌ Follow error: {e}')
 
 @bot.command()
 async def unfollow(ctx, username: str):
@@ -136,7 +136,10 @@ async def check_tweets():
                 continue
             
             last_id = data.get('lastTweetId')
-            new_tweets = [t for t in tweets if last_id is None or int(t['id']) > int(last_id)]
+            if last_id:
+                new_tweets = [t for t in tweets if str(t['id']) > str(last_id)]
+            else:
+                new_tweets = [tweets[0]] if tweets else []
             
             if not new_tweets:
                 print('  ✓ No new')
@@ -154,11 +157,11 @@ async def check_tweets():
                     embed.set_footer(text="X.com")
                     await channel.send(embed=embed)
                     print(f'  ✅ Posted {tweet["id"]}')
-                except:
-                    pass
+                except Exception as e:
+                    print(f'  Error posting: {e}')
                 await asyncio.sleep(0.5)
             
-            followed[username]['lastTweetId'] = new_tweets[0]['id']
+            followed[username]['lastTweetId'] = str(new_tweets[0]['id'])
             save_followed(followed)
             print(f'  💾 Updated')
         

@@ -26,10 +26,10 @@ def save_followed(data):
     json.dump(data, open(FOLLOWED_FILE, 'w'), indent=2)
 
 def scrape_tweets(username):
-    """Synchronously scrape tweets using Node.js"""
+    """Scrape tweets using snscrape"""
     try:
         result = subprocess.run(
-            ['node', 'fetch_tweets.js', username],
+            ['python', 'fetch_tweets.py', username],
             capture_output=True,
             text=True,
             timeout=45
@@ -41,7 +41,7 @@ def scrape_tweets(username):
                 print(f'JSON parse error: {result.stdout}')
                 return []
         else:
-            print(f'Scraper error: {result.stderr}')
+            print(f'Scraper stderr: {result.stderr}')
             return []
     except Exception as e:
         print(f'Scrape exception: {e}')
@@ -178,5 +178,5 @@ if __name__ == '__main__':
     if not DISCORD_TOKEN or not DISCORD_CHANNEL_ID:
         print('❌ Missing DISCORD_BOT_TOKEN or DISCORD_CHANNEL_ID')
         exit(1)
-    print('🚀 Starting Discord Twitter bot with Puppeteer...')
+    print('🚀 Starting Discord Twitter bot with snscrape...')
     bot.run(DISCORD_TOKEN)

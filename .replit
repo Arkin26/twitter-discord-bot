@@ -14,6 +14,10 @@ author = "agent"
 task = "workflow.run"
 args = "Twitter Discord Bot"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Twitter Discord Bot 2"
+
 [[workflows.workflow]]
 name = "Twitter Discord Bot"
 author = "agent"
@@ -21,6 +25,17 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python bot.py"
+
+[workflows.workflow.metadata]
+outputType = "console"
+
+[[workflows.workflow]]
+name = "Twitter Discord Bot 2"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python bot2.py"
 
 [workflows.workflow.metadata]
 outputType = "console"

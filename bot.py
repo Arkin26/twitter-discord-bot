@@ -33,7 +33,7 @@ def save_posted_tweets(data):
     json.dump(data, open(POSTED_TWEETS_FILE, 'w'), indent=2)
 
 def get_tweets(username):
-    """Fetch tweets from Twitter API v2"""
+    """Fetch tweets from Twitter API v2 with media"""
     if not TWITTER_BEARER_TOKEN:
         return []
     
@@ -50,12 +50,13 @@ def get_tweets(username):
         
         user_id = user_response.json()['data']['id']
         
-        # Get tweets
+        # Get tweets with media
         tweets_url = f'https://api.twitter.com/2/users/{user_id}/tweets'
         params = {
             'max_results': 20,
             'tweet.fields': 'created_at,public_metrics',
-            'expansions': 'author_id'
+            'expansions': 'attachments.media_keys,author_id',
+            'media.fields': 'media_key,type,url,preview_image_url,variants'
         }
         
         tweets_response = requests.get(tweets_url, headers=headers, params=params, timeout=10)
@@ -64,17 +65,37 @@ def get_tweets(username):
             print(f"❌ Tweets lookup failed: {tweets_response.status_code}")
             return []
         
-        data = tweets_response.json()
+        response_data = tweets_response.json()
         tweets = []
+        media_dict = {}
         
-        if 'data' in data:
-            for tweet in data['data']:
+        # Build media lookup
+        if 'includes' in response_data and 'media' in response_data['includes']:
+            for media in response_data['includes']['media']:
+                media_dict[media['media_key']] = media
+        
+        if 'data' in response_data:
+            for tweet in response_data['data']:
+                media_list = []
+                
+                # Extract media from tweet
+                if 'attachments' in tweet and 'media_keys' in tweet['attachments']:
+                    for media_key in tweet['attachments']['media_keys']:
+                        if media_key in media_dict:
+                            media = media_dict[media_key]
+                            media_list.append({
+                                'type': media.get('type'),
+                                'url': media.get('url'),
+                                'preview_image_url': media.get('preview_image_url')
+                            })
+                
                 tweets.append({
                     'id': tweet['id'],
                     'text': tweet['text'],
                     'url': f'https://x.com/{username}/status/{tweet["id"]}',
                     'created_at': tweet.get('created_at', ''),
-                    'metrics': tweet.get('public_metrics', {})
+                    'metrics': tweet.get('public_metrics', {}),
+                    'media': media_list
                 })
         
         return tweets
@@ -124,7 +145,21 @@ async def tweet_checker():
                 embed.add_field(name="🔄 Retweets", value=str(tweet['metrics'].get('retweet_count', 0)), inline=True)
             embed.set_footer(text="X.com")
             
-            await channel.send(embed=embed)
+            # Add image if present
+            if tweet['media']:
+                for media in tweet['media']:
+                    if media['type'] == 'photo' and media.get('url'):
+                        embed.set_image(url=media['url'])
+                        break  # Only one image per embed
+            
+            message = await channel.send(embed=embed)
+            
+            # Send videos separately as links
+            if tweet['media']:
+                for media in tweet['media']:
+                    if media['type'] in ['video', 'animated_gif']:
+                        await channel.send(f"🎥 Video: {tweet['url']}")
+            
             print(f"✅ Posted tweet {tweet['id']}")
             
             posted[tweet['id']] = True

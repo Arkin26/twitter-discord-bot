@@ -48,17 +48,10 @@ async def on_ready():
     print(f'📢 Target channel: {DISCORD_CHANNEL_ID}')
     print(f'📌 Followed accounts: {list(followed.keys())}')
     
-    if not guest_client.is_activated:
-        print('🔄 Initializing TwiKit guest client...')
-        try:
-            await guest_client.activate()
-            print('✅ TwiKit guest client ready')
-        except Exception as e:
-            print(f'❌ TwiKit error: {e}')
-    
     # Start the tweet checker
     if not check_tweets.is_running():
         check_tweets.start()
+        print('🔄 Tweet checker started')
 
 @bot.event
 async def on_message(message):
@@ -80,7 +73,9 @@ async def follow(ctx, username: str):
         return
     
     try:
-        # Verify user exists
+        await ctx.send(f'🔍 Fetching tweets from @{username}...')
+        
+        # Verify user exists and get their tweets
         user = await guest_client.get_user_by_screen_name(username)
         print(f'✅ Fetched user @{username} (ID: {user.id})')
         
@@ -102,7 +97,7 @@ async def follow(ctx, username: str):
             await ctx.send(f'❌ No tweets found for @{username}')
     
     except Exception as e:
-        await ctx.send(f'❌ Error: User @{username} not found')
+        await ctx.send(f'❌ Error: {str(e)[:100]}')
         print(f'❌ Error fetching @{username}: {e}')
 
 @bot.command()
@@ -119,8 +114,8 @@ async def unfollow(ctx, username: str):
     await ctx.send(f'❌ Unfollowed @{username}')
     print(f'❌ Unfollowed @{username}')
 
-@bot.command()
-async def list(ctx):
+@bot.command(name='list')
+async def list_accounts(ctx):
     """List all followed accounts: !list"""
     if not followed:
         await ctx.send('No accounts being followed. Use `!follow <username>`')
@@ -175,7 +170,7 @@ async def check_tweets():
                         description=tweet.text[:2000],  # Discord limit
                         url=f"https://x.com/{username}/status/{tweet.id}",
                         color=discord.Color.blue(),
-                        timestamp=tweet.created_at if hasattr(tweet, 'created_at') else datetime.now()
+                        timestamp=datetime.now()
                     )
                     embed.set_author(name=data.get('name', username), url=f"https://x.com/{username}")
                     embed.set_footer(text="Posted from X.com")

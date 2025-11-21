@@ -2,46 +2,57 @@ import sys
 import json
 import requests
 import os
+from pathlib import Path
+
+# Cache file for user IDs
+USER_CACHE_FILE = 'user_id_cache.json'
+
+def load_user_cache():
+    if Path(USER_CACHE_FILE).exists():
+        try:
+            return json.load(open(USER_CACHE_FILE))
+        except:
+            return {}
+    return {}
+
+def save_user_cache(cache):
+    json.dump(cache, open(USER_CACHE_FILE, 'w'), indent=2)
 
 def fetch_tweets_api(username):
     """Fetch tweets using Twitter API v2"""
     bearer_token = os.getenv('TWITTER_BEARER_TOKEN')
     
-    print(f"DEBUG: Fetching for {username}, token exists: {bearer_token is not None}", file=sys.stderr)
-    
     if not bearer_token:
-        print("ERROR: No bearer token!", file=sys.stderr)
         return []
     
     try:
-        # Step 1: Get user ID
+        cache = load_user_cache()
         headers = {'Authorization': f'Bearer {bearer_token}'}
-        user_url = f'https://api.twitter.com/2/users/by/username/{username}'
-        print(f"DEBUG: Requesting {user_url}", file=sys.stderr)
-        user_response = requests.get(user_url, headers=headers, timeout=10)
         
-        print(f"DEBUG: User response status: {user_response.status_code}", file=sys.stderr)
+        # Get user ID (with caching)
+        if username not in cache:
+            user_url = f'https://api.twitter.com/2/users/by/username/{username}'
+            user_response = requests.get(user_url, headers=headers, timeout=10)
+            
+            if user_response.status_code != 200:
+                return []
+            
+            user_id = user_response.json()['data']['id']
+            cache[username] = user_id
+            save_user_cache(cache)
+        else:
+            user_id = cache[username]
         
-        if user_response.status_code != 200:
-            print(f"User lookup failed: {user_response.status_code} - {user_response.text}", file=sys.stderr)
-            return []
-        
-        user_id = user_response.json()['data']['id']
-        print(f"DEBUG: Got user ID {user_id}", file=sys.stderr)
-        
-        # Step 2: Get recent tweets
+        # Get recent tweets
         tweets_url = f'https://api.twitter.com/2/users/{user_id}/tweets'
         params = {
             'max_results': 20,
-            'tweet.fields': 'created_at',
-            'expansions': 'author_id'
+            'tweet.fields': 'created_at'
         }
         
         tweets_response = requests.get(tweets_url, headers=headers, params=params, timeout=10)
-        print(f"DEBUG: Tweets response status: {tweets_response.status_code}", file=sys.stderr)
         
         if tweets_response.status_code != 200:
-            print(f"Tweets lookup failed: {tweets_response.status_code} - {tweets_response.text}", file=sys.stderr)
             return []
         
         data = tweets_response.json()
@@ -56,12 +67,8 @@ def fetch_tweets_api(username):
                     'timestamp': tweet.get('created_at', '')
                 })
         
-        print(f"DEBUG: Got {len(tweets)} tweets", file=sys.stderr)
         return tweets
-    except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        import traceback
-        traceback.print_exc(file=sys.stderr)
+    except:
         return []
 
 if __name__ == '__main__':

@@ -18,16 +18,16 @@ args = "Discord Twitter Bot"
 name = "Discord Twitter Bot"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "node index.js"
-
 [workflows.workflow.metadata]
 outputType = "console"
 
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python bot.py"
+
 [nix]
 channel = "stable-25_05"
-packages = ["geckodriver", "chromium", "glib", "gtk3", "pango", "dbus", "atk", "libcap", "cups", "nspr"]
+packages = ["atk", "chromium", "cups", "dbus", "geckodriver", "glib", "gtk3", "libcap", "nspr", "pango"]
 
 [[ports]]
 localPort = 3000

@@ -11,6 +11,7 @@ dependencies = [
     "requests>=2.32.5",
     "selenium>=4.38.0",
     "snscrape>=0.7.0.20230622",
+    "twikit>=2.3.3",
     "webdriver-manager>=4.0.2",
     "zenrows>=1.4.0",
 ]

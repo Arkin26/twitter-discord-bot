@@ -1,16 +1,11 @@
 {
   "name": "discord-twitter-bot",
-  "version": "2.0.0",
-  "description": "Discord bot that monitors and posts tweets from tracked X.com accounts",
+  "version": "3.0.0",
+  "description": "Discord bot using TwiKit for Twitter/X monitoring",
   "type": "module",
-  "main": "index.js",
+  "main": "bot.py",
   "scripts": {
-    "start": "node index.js"
+    "start": "python bot.py"
   },
-  "dependencies": {
-    "discord.js": "^14.14.0",
-    "puppeteer": "^21.6.1",
-    "dotenv": "^16.3.1",
-    "fs-extra": "^11.1.1"
-  }
+  "dependencies": {}
 }

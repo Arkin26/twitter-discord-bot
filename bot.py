@@ -1,9 +1,8 @@
 import discord
 from discord.ext import commands, tasks
 import os
+import requests
 import json
-import asyncio
-import subprocess
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -12,179 +11,144 @@ load_dotenv()
 
 DISCORD_TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 DISCORD_CHANNEL_ID = int(os.getenv('DISCORD_CHANNEL_ID', 0))
-FOLLOWED_FILE = 'followed.json'
+TWITTER_BEARER_TOKEN = os.getenv('TWITTER_BEARER_TOKEN')
 
-def load_followed():
-    if Path(FOLLOWED_FILE).exists():
+# Intents
+intents = discord.Intents.default()
+intents.message_content = True
+bot = commands.Bot(command_prefix='!', intents=intents)
+
+# Track posted tweets to avoid duplicates
+POSTED_TWEETS_FILE = 'posted_tweets.json'
+
+def load_posted_tweets():
+    if Path(POSTED_TWEETS_FILE).exists():
         try:
-            return json.load(open(FOLLOWED_FILE))
+            return json.load(open(POSTED_TWEETS_FILE))
         except:
             return {}
     return {}
 
-def save_followed(data):
-    json.dump(data, open(FOLLOWED_FILE, 'w'), indent=2)
+def save_posted_tweets(data):
+    json.dump(data, open(POSTED_TWEETS_FILE, 'w'), indent=2)
 
-def scrape_tweets(username):
-    """Scrape tweets using Twitter API v2"""
-    try:
-        # Pass environment variables to subprocess
-        env = os.environ.copy()
-        result = subprocess.run(
-            ['python', 'fetch_tweets.py', username],
-            capture_output=True,
-            text=True,
-            timeout=45,
-            env=env
-        )
-        if result.returncode == 0:
-            try:
-                tweets = json.loads(result.stdout)
-                if result.stderr:
-                    print(f'Debug: {result.stderr}')
-                return tweets
-            except:
-                print(f'JSON parse error: {result.stdout}')
-                if result.stderr:
-                    print(f'Stderr: {result.stderr}')
-                return []
-        else:
-            print(f'Scraper error: {result.stderr}')
-            return []
-    except Exception as e:
-        print(f'Scrape exception: {e}')
+def get_tweets(username):
+    """Fetch tweets from Twitter API v2"""
+    if not TWITTER_BEARER_TOKEN:
         return []
-
-# Discord bot setup
-intents = discord.Intents.default()
-intents.message_content = True
-bot = commands.Bot(command_prefix='!', intents=intents)
-followed = load_followed()
+    
+    try:
+        headers = {'Authorization': f'Bearer {TWITTER_BEARER_TOKEN}'}
+        
+        # Get user ID
+        user_url = f'https://api.twitter.com/2/users/by/username/{username}'
+        user_response = requests.get(user_url, headers=headers, timeout=10)
+        
+        if user_response.status_code != 200:
+            print(f"❌ User lookup failed: {user_response.status_code}")
+            return []
+        
+        user_id = user_response.json()['data']['id']
+        
+        # Get tweets
+        tweets_url = f'https://api.twitter.com/2/users/{user_id}/tweets'
+        params = {
+            'max_results': 20,
+            'tweet.fields': 'created_at,public_metrics',
+            'expansions': 'author_id'
+        }
+        
+        tweets_response = requests.get(tweets_url, headers=headers, params=params, timeout=10)
+        
+        if tweets_response.status_code != 200:
+            print(f"❌ Tweets lookup failed: {tweets_response.status_code}")
+            return []
+        
+        data = tweets_response.json()
+        tweets = []
+        
+        if 'data' in data:
+            for tweet in data['data']:
+                tweets.append({
+                    'id': tweet['id'],
+                    'text': tweet['text'],
+                    'url': f'https://x.com/{username}/status/{tweet["id"]}',
+                    'created_at': tweet.get('created_at', ''),
+                    'metrics': tweet.get('public_metrics', {})
+                })
+        
+        return tweets
+    except Exception as e:
+        print(f"❌ Error fetching tweets: {e}")
+        return []
 
 @bot.event
 async def on_ready():
     print(f'✅ Bot logged in as {bot.user}')
     print(f'📢 Target channel: {DISCORD_CHANNEL_ID}')
-    print(f'📌 Followed: {list(followed.keys())}')
     
-    if not check_tweets.is_running():
-        check_tweets.start()
+    if not tweet_checker.is_running():
+        tweet_checker.start()
         print('🔄 Tweet checker started')
 
-@bot.event
-async def on_message(message):
-    if message.author.bot or not message.content.startswith('!'):
-        return
-    await bot.process_commands(message)
-
-@bot.command()
-async def follow(ctx, username: str):
-    """Follow: !follow NFL"""
-    username = username.lstrip('@')
-    
-    if username in followed:
-        await ctx.send(f'Already following @{username}')
-        return
-    
-    try:
-        await ctx.send(f'🔍 Fetching tweets from @{username}...')
-        tweets = await asyncio.to_thread(scrape_tweets, username)
-        
-        if not tweets or len(tweets) == 0:
-            await ctx.send(f'❌ No tweets found for @{username}')
-            return
-        
-        followed[username] = {
-            'lastTweetId': str(tweets[0]['id']),
-            'name': username
-        }
-        save_followed(followed)
-        await ctx.send(f'✅ Following @{username} ({len(tweets)} tweets found)')
-        print(f'✅ Now following @{username}')
-    except Exception as e:
-        await ctx.send(f'❌ Error: {str(e)[:80]}')
-        print(f'❌ Follow error: {e}')
-
-@bot.command()
-async def unfollow(ctx, username: str):
-    """Unfollow: !unfollow NFL"""
-    username = username.lstrip('@')
-    if username not in followed:
-        await ctx.send(f'Not following @{username}')
-        return
-    del followed[username]
-    save_followed(followed)
-    await ctx.send(f'❌ Unfollowed @{username}')
-
-@bot.command(name='list')
-async def list_accounts(ctx):
-    """List accounts: !list"""
-    if not followed:
-        await ctx.send('No accounts. Use `!follow <username>`')
-        return
-    await ctx.send('📋 Followed:\n' + '\n'.join([f'• @{u}' for u in followed.keys()]))
-
-@tasks.loop(minutes=3)
-async def check_tweets():
-    """Check for new tweets every 3 minutes"""
-    if not followed:
-        return
-    
+@tasks.loop(minutes=5)
+async def tweet_checker():
+    """Check for new tweets every 5 minutes"""
     channel = bot.get_channel(DISCORD_CHANNEL_ID)
     if not channel:
         return
     
-    for username, data in list(followed.items()):
+    posted = load_posted_tweets()
+    tweets = get_tweets('NFL')
+    
+    if not tweets:
+        print("ℹ️  No tweets found")
+        return
+    
+    for tweet in reversed(tweets):
+        if tweet['id'] in posted:
+            continue
+        
         try:
-            print(f'🔍 Checking @{username}...')
-            tweets = await asyncio.to_thread(scrape_tweets, username)
+            # Create embed with link
+            embed = discord.Embed(
+                title="Tweet from @NFL",
+                description=tweet['text'][:2000],
+                url=tweet['url'],
+                color=discord.Color.blue(),
+                timestamp=datetime.now()
+            )
+            embed.add_field(name="Link", value=tweet['url'], inline=False)
+            if tweet['metrics']:
+                embed.add_field(name="❤️ Likes", value=str(tweet['metrics'].get('like_count', 0)), inline=True)
+                embed.add_field(name="🔄 Retweets", value=str(tweet['metrics'].get('retweet_count', 0)), inline=True)
+            embed.set_footer(text="X.com")
             
-            if not tweets:
-                print('  ℹ️ No tweets')
-                continue
+            await channel.send(embed=embed)
+            print(f"✅ Posted tweet {tweet['id']}")
             
-            last_id = data.get('lastTweetId')
-            if last_id:
-                new_tweets = [t for t in tweets if str(t['id']) > str(last_id)]
-            else:
-                new_tweets = [tweets[0]] if tweets else []
-            
-            if not new_tweets:
-                print('  ✓ No new')
-                continue
-            
-            for tweet in reversed(new_tweets):
-                try:
-                    embed = discord.Embed(
-                        title=f"Tweet from @{username}",
-                        description=tweet['text'][:2000],
-                        url=tweet['url'],
-                        color=discord.Color.blue(),
-                        timestamp=datetime.now()
-                    )
-                    embed.set_footer(text="X.com")
-                    await channel.send(embed=embed)
-                    print(f'  ✅ Posted {tweet["id"]}')
-                except Exception as e:
-                    print(f'  Error posting: {e}')
-                await asyncio.sleep(0.5)
-            
-            followed[username]['lastTweetId'] = str(new_tweets[0]['id'])
-            save_followed(followed)
-            print(f'  💾 Updated')
-        
+            posted[tweet['id']] = True
+            save_posted_tweets(posted)
         except Exception as e:
-            print(f'❌ Error @{username}: {e}')
-        
-        await asyncio.sleep(1)
+            print(f"❌ Error posting: {e}")
 
-@check_tweets.before_loop
-async def before_check_tweets():
+@tweet_checker.before_loop
+async def before_tweet_checker():
     await bot.wait_until_ready()
 
+@bot.command()
+async def check(ctx):
+    """Manually check for new tweets"""
+    await ctx.send("🔍 Checking for new tweets...")
+    tweets = get_tweets('NFL')
+    if tweets:
+        await ctx.send(f"✅ Found {len(tweets)} tweets")
+    else:
+        await ctx.send("❌ No tweets found")
+
 if __name__ == '__main__':
-    if not DISCORD_TOKEN or not DISCORD_CHANNEL_ID:
-        print('❌ Missing DISCORD_BOT_TOKEN or DISCORD_CHANNEL_ID')
+    if not DISCORD_TOKEN or not DISCORD_CHANNEL_ID or not TWITTER_BEARER_TOKEN:
+        print('❌ Missing DISCORD_BOT_TOKEN, DISCORD_CHANNEL_ID, or TWITTER_BEARER_TOKEN')
         exit(1)
-    print('🚀 Starting Discord Twitter bot with Twitter API v2...')
+    print('🚀 Starting Twitter to Discord Bot...')
     bot.run(DISCORD_TOKEN)

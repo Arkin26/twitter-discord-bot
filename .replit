@@ -12,18 +12,18 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Discord Twitter Bot"
+args = "Twitter Discord Bot"
 
 [[workflows.workflow]]
-name = "Discord Twitter Bot"
+name = "Twitter Discord Bot"
 author = "agent"
-
-[workflows.workflow.metadata]
-outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "python bot.py"
+
+[workflows.workflow.metadata]
+outputType = "console"
 
 [nix]
 channel = "stable-25_05"

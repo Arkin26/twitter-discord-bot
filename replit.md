@@ -1,85 +1,59 @@
-# Twitter to Discord Bot with Puppeteer Scraper
+# Twitter to Discord Bot
 
 ## Overview
-A dual-component system that monitors Twitter/X accounts and automatically posts tweets to Discord. Uses a Node.js Express server with Puppeteer for web scraping (free alternative to Twitter API) and a Python Discord bot for posting.
+A simple Discord bot that monitors @NFL on Twitter/X and automatically posts new tweets to a Discord channel with rich embeds and links.
 
 ## Purpose
-Enable real-time Twitter/X monitoring and automatic cross-posting to Discord without requiring expensive API credentials. The Puppeteer scraper handles tweet extraction via browser automation, while the Discord bot manages the communication with Discord servers.
+Monitor specific Twitter accounts and cross-post them to Discord using the official Twitter API v2. No scraping, no free tiers - just clean API integration.
 
-## Project Architecture
-
-### Technology Stack
-- **Frontend Scraper**: Node.js + Express + Puppeteer (browser automation, free scraping)
-- **Discord Integration**: Python + discord.py (bot for posting to Discord)
-- **Configuration**: python-dotenv for environment variables
-- **Authentication**: Cookie-based X.com authentication (optional)
-
-### Project Structure
+## Architecture
 ```
-├── index.js              # Express server with /tweets/:username endpoint
-├── scraper.js            # Puppeteer logic for tweet extraction
-├── discord_bot.py        # Discord bot that polls API and posts tweets
-├── cookies.json          # Optional X.com cookies for authentication
-├── .env                  # Environment configuration (user-provided)
-├── .env.example          # Configuration template
-├── posted_tweets.json    # Persistent storage of posted tweet IDs
-└── README.md             # Setup instructions
+bot.py                 # Main Discord bot
+posted_tweets.json    # Tracks posted tweets to avoid duplicates
+.env                  # Environment variables
 ```
 
-### Key Features
-1. **Free Tweet Monitoring**: Puppeteer browser automation (no API costs)
-2. **Automatic Scrolling**: Loads 10-20+ tweets per request
-3. **Discord Integration**: Posts tweets with rich embeds
-4. **Duplicate Prevention**: Tracks posted tweets to avoid repeats
-5. **State Persistence**: Remembers which tweets have been posted
-6. **Cookie Authentication**: Optional X.com login for authenticated scraping
-7. **Simple Setup**: No Twitter API credentials needed
+## How It Works
+1. Bot connects to Discord
+2. Every 5 minutes, checks @NFL for new tweets
+3. For each new tweet:
+   - Creates a rich embed with the tweet text
+   - Includes the Twitter link
+   - Shows metrics (likes, retweets)
+   - Posts to your Discord channel
+4. Remembers posted tweets to avoid duplicates
 
-### Configuration
-The system requires Discord credentials:
-- **Discord**: Bot token and target channel ID
-- **Twitter**: Username to monitor (no API keys!)
-- **API**: Fetcher URL (default: http://localhost:5000)
+## Setup
+1. Get your tokens:
+   - Discord Bot Token: https://discord.com/developers/applications
+   - Twitter Bearer Token: https://developer.twitter.com/en/portal/dashboard
+   - Discord Channel ID: Right-click channel in Discord, copy ID
 
-## Recent Changes
-- **2025-11-20**: Integrated Puppeteer scraper with Discord bot
-  - Created Node.js Express server with `/tweets/:username` endpoint
-  - Implemented Puppeteer browser automation for tweet scraping
-  - Created Python Discord bot that polls the API and posts tweets
-  - Added state persistence to track posted tweets
-  - Installed all system dependencies for headless Chrome
+2. Add secrets in Replit:
+   - DISCORD_BOT_TOKEN
+   - DISCORD_CHANNEL_ID
+   - TWITTER_BEARER_TOKEN
 
-## Current State
-The system is fully implemented with two components:
-1. **Twitter Fetcher API** (Node.js) - Running on port 5000
-2. **Discord Bot** (Python) - Ready to start
+3. Run the bot!
 
-To run:
-```bash
-# Terminal 1: Start the Twitter fetcher API
-node index.js
+## Commands
+- `!check` - Manually check for new tweets
 
-# Terminal 2: Start the Discord bot (in a separate workflow)
-python discord_bot.py
-```
+## Current Status
+✅ Clean implementation using official Twitter API v2
+✅ Discord embeds with links
+✅ Duplicate prevention
+✅ Automatic 5-minute checks
 
-## Environment Variables Required
-- `DISCORD_BOT_TOKEN` - Your Discord bot token
-- `DISCORD_CHANNEL_ID` - Target Discord channel ID
-- `TWITTER_USERNAME` - Username to monitor (default: NFL)
-- `FETCHER_URL` - URL of the fetcher API (default: http://localhost:5000)
+## Tech Stack
+- Python 3.11
+- discord.py - Discord bot framework
+- requests - HTTP client for Twitter API
+- python-dotenv - Environment variables
 
-## Dependencies
-- **Node.js**: express, puppeteer, cors
-- **Python**: discord.py, aiohttp, python-dotenv
-
-## User Preferences
-- Prefers free/low-cost solutions (no paid APIs)
-- Building for personal use
-- Wants simplified, working solution
-
-## Technical Notes
-- Puppeteer uses headless Chromium with required system libraries (glib, gtk3, pango, etc.)
-- Discord bot polls every 1 minute for new tweets
-- Tweet state is persisted in `posted_tweets.json`
-- Optional X.com cookies can be added to `cookies.json` for authenticated scraping
+## Recent Update
+- **2025-11-21**: Fresh start with clean implementation
+  - Removed all scraping attempts
+  - Using official Twitter API v2
+  - Simple, focused codebase
+  - Rich Discord embeds with links and metrics

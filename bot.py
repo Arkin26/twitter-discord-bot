@@ -36,6 +36,7 @@ def save_followed(data):
 
 # Initialize Discord bot
 intents = discord.Intents.default()
+intents.message_content = True  # Required to read message content
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 # TwiKit guest client

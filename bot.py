@@ -155,23 +155,20 @@ async def tweet_checker():
                 embed.add_field(name="🔄 Retweets", value=str(tweet['metrics'].get('retweet_count', 0)), inline=True)
             embed.set_footer(text="X.com")
             
-            # Add image if present (for photos and video previews)
+            # Add media to embed
             if tweet['media']:
                 for media in tweet['media']:
                     if media['type'] == 'photo' and media.get('url'):
                         embed.set_image(url=media['url'])
                         break
-                    elif media['type'] in ['video', 'animated_gif'] and media.get('preview_image_url'):
-                        embed.set_image(url=media['preview_image_url'])
+                    elif media['type'] in ['video', 'animated_gif']:
+                        if media.get('preview_image_url'):
+                            embed.set_image(url=media['preview_image_url'])
+                        if media.get('video_url'):
+                            embed.add_field(name="🎥 Watch Video", value=f"[Play Video]({media['video_url']})", inline=False)
                         break
             
             await channel.send(embed=embed)
-            
-            # Send videos/GIFs directly if available
-            if tweet['media']:
-                for media in tweet['media']:
-                    if media['type'] in ['video', 'animated_gif'] and media.get('video_url'):
-                        await channel.send(f"🎥 Video: {media['video_url']}")
             
             print(f"✅ Posted tweet {tweet['id']}")
             

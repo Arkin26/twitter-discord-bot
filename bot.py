@@ -72,7 +72,7 @@ async def on_message(message):
 @bot.command()
 async def follow(ctx, username: str):
     """Follow: !follow NFL"""
-    username = username.lstrip('@').lower()
+    username = username.lstrip('@')
     
     if username in followed:
         await ctx.send(f'Already following @{username}')
@@ -100,7 +100,7 @@ async def follow(ctx, username: str):
 @bot.command()
 async def unfollow(ctx, username: str):
     """Unfollow: !unfollow NFL"""
-    username = username.lstrip('@').lower()
+    username = username.lstrip('@')
     if username not in followed:
         await ctx.send(f'Not following @{username}')
         return

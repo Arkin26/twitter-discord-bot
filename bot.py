@@ -178,5 +178,5 @@ if __name__ == '__main__':
     if not DISCORD_TOKEN or not DISCORD_CHANNEL_ID:
         print('❌ Missing DISCORD_BOT_TOKEN or DISCORD_CHANNEL_ID')
         exit(1)
-    print('🚀 Starting Discord Twitter bot with snscrape...')
+    print('🚀 Starting Discord Twitter bot with Twitter API v2...')
     bot.run(DISCORD_TOKEN)

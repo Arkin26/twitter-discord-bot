@@ -18,6 +18,10 @@ args = "Twitter Discord Bot"
 task = "workflow.run"
 args = "Twitter Discord Bot 2"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Embed Server"
+
 [[workflows.workflow]]
 name = "Twitter Discord Bot"
 author = "agent"
@@ -40,6 +44,18 @@ args = "python bot2.py"
 [workflows.workflow.metadata]
 outputType = "console"
 
+[[workflows.workflow]]
+name = "Embed Server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "python embed_server.py"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"
+
 [nix]
 channel = "stable-25_05"
 packages = ["atk", "chromium", "cups", "dbus", "geckodriver", "glib", "gtk3", "libcap", "nspr", "pango"]
@@ -51,3 +67,7 @@ externalPort = 80
 [[ports]]
 localPort = 5000
 externalPort = 80
+
+[[ports]]
+localPort = 33535
+externalPort = 3000

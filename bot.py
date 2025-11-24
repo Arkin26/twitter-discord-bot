@@ -6,7 +6,6 @@ import json
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
-from urllib.parse import urlencode
 
 load_dotenv()
 
@@ -57,7 +56,7 @@ def get_tweets(username):
         # Get tweets with media
         tweets_url = f'https://api.twitter.com/2/users/{user_id}/tweets'
         params = {
-            'max_results': 5,
+            'max_results': 2,
             'tweet.fields': 'created_at,public_metrics',
             'expansions': 'attachments.media_keys,author_id',
             'media.fields': 'media_key,type,url,preview_image_url,variants,public_metrics'
@@ -156,26 +155,37 @@ async def tweet_checker():
                     elif media['type'] in ['video', 'animated_gif']:
                         if media.get('video_url'):
                             video_url = media['video_url']
+                        if media.get('preview_image_url'):
+                            image_url = media['preview_image_url']
                         break
             
-            # Generate embed server URL with tweet data
-            params = {
-                'title': f"Tweet from @NFL",
-                'name': 'NFL',
-                'handle': 'NFL',
-                'text': tweet['text'][:500],
-                'likes': tweet['metrics'].get('like_count', 0),
-                'retweets': tweet['metrics'].get('retweet_count', 0),
-                'replies': tweet['metrics'].get('reply_count', 0),
-                'views': tweet['metrics'].get('impression_count', 0)
-            }
-            if video_url:
-                params['video'] = video_url
-            if image_url:
-                params['image'] = image_url
+            # Create beautiful fixtweet-style embed
+            embed = discord.Embed(
+                title="@NFL",
+                description=tweet['text'],
+                url=tweet['url'],
+                color=0x1DA1F2
+            )
             
-            embed_url = f"{EMBED_SERVER_URL}/?{urlencode(params)}"
-            await channel.send(embed_url)
+            # Add metrics in a single compact line
+            likes = tweet['metrics'].get('like_count', 0)
+            retweets = tweet['metrics'].get('retweet_count', 0)
+            replies = tweet['metrics'].get('reply_count', 0)
+            views = tweet['metrics'].get('impression_count', 0)
+            metrics_line = f"💬 {replies} | 🔄 {retweets} | ❤️ {likes} | 👁️ {views}"
+            embed.add_field(name="Metrics", value=metrics_line, inline=False)
+            
+            # Add image/video
+            if image_url:
+                embed.set_image(url=image_url)
+            
+            # Add video link if available
+            if video_url:
+                embed.add_field(name="▶️ Video", value=f"[Watch Video]({video_url})", inline=False)
+            
+            embed.set_footer(text="X.com • FixTweet Bot")
+            
+            await channel.send(embed=embed)
             
             print(f"✅ Posted tweet {tweet['id']}")
             

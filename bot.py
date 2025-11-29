@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 from urllib.parse import quote
 from dotenv import load_dotenv
-import re
 
 
 load_dotenv()
@@ -250,66 +249,7 @@ async def tweet_loop():
 
     save_posted(posted)
 
-# -------------------------------
-# COMMAND: !tweet <tweet_url>
-# -------------------------------
 
-TWEET_URL_REGEX = r"(?:twitter\.com|x\.com)/\w+/status/(\d+)"
-
-@bot.command()
-async def tweet(ctx, url: str):
-    """Manually fetch & post a tweet using the embed server."""
-    match = re.search(TWEET_URL_REGEX, url)
-    if not match:
-        await ctx.send("❌ Invalid Twitter/X link.")
-        return
-
-    tweet_id = match.group(1)
-    username = "manual"  # fallback, real username not required
-
-    # Fetch using your existing get_tweets() but for a single ID
-    tweets = get_tweets("NFL")  # temp fetch
-
-    # Try to find matching tweet
-    selected = None
-    for t in tweets:
-        if t["id"] == tweet_id:
-            selected = t
-            break
-
-    if not selected:
-        await ctx.send("❌ Could not fetch that tweet (rate limit or unknown ID).")
-        return
-
-    # Build embed URL
-    image_url = None
-    video_url = None
-
-    for m in selected.get("media", []):
-        if m["type"] == "photo":
-            image_url = m["url"]
-        elif m["type"] in ["video", "gif", "animated_gif"]:
-            video_url = m["video_url"]
-            image_url = m["preview_image_url"]
-
-    embed_url = (
-        f"{EMBED_SERVER_URL}"
-        f"?title=@NFL"
-        f"&name=NFL"
-        f"&handle=NFL"
-        f"&text={quote(selected['text'])}"
-        f"&likes={selected['metrics'].get('like_count', 0)}"
-        f"&retweets={selected['metrics'].get('retweet_count', 0)}"
-        f"&replies={selected['metrics'].get('reply_count', 0)}"
-        f"&views={selected['metrics'].get('impression_count', 0)}"
-    )
-
-    if image_url:
-        embed_url += "&image=" + quote(image_url)
-    if video_url:
-        embed_url += "&video=" + quote(video_url)
-
-    await ctx.send(embed_url)
 
 
 

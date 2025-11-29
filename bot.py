@@ -143,13 +143,12 @@ async def tweet_checker():
         print("ℹ️  No tweets found")
         return
     
-    for tweet in reversed(tweets):
+    for tweet in tweets:
         if tweet['id'] in posted:
             continue
         
         try:
             # Extract media
-            video_url = None
             image_url = None
             if tweet['media']:
                 for media in tweet['media']:
@@ -157,37 +156,31 @@ async def tweet_checker():
                         image_url = media['url']
                         break
                     elif media['type'] in ['video', 'animated_gif']:
-                        if media.get('video_url'):
-                            video_url = media['video_url']
                         if media.get('preview_image_url'):
                             image_url = media['preview_image_url']
                         break
             
-            # Create beautiful fixtweet-style embed
+            # Create fixtweet-style embed
             embed = discord.Embed(
-                title="@NFL",
                 description=tweet['text'],
                 url=tweet['url'],
-                color=0x1DA1F2
+                color=0x1F51BA
             )
+            embed.set_author(name="@NFL", url=tweet['url'])
             
-            # Add metrics in a single compact line
+            # Add metrics inline
             likes = tweet['metrics'].get('like_count', 0)
             retweets = tweet['metrics'].get('retweet_count', 0)
             replies = tweet['metrics'].get('reply_count', 0)
             views = tweet['metrics'].get('impression_count', 0)
-            metrics_line = f"💬 {replies} | 🔄 {retweets} | ❤️ {likes} | 👁️ {views}"
-            embed.add_field(name="Metrics", value=metrics_line, inline=False)
+            metrics_line = f"💬 {replies}  🔄 {retweets}  ❤️ {likes}  👁️ {views}"
+            embed.add_field(name=metrics_line, value="", inline=False)
             
-            # Add image/video
+            # Add image/video inside embed
             if image_url:
                 embed.set_image(url=image_url)
             
-            # Add video link if available
-            if video_url:
-                embed.add_field(name="▶️ Video", value=f"[Watch Video]({video_url})", inline=False)
-            
-            embed.set_footer(text="X.com • FixTweet Bot")
+            embed.set_footer(text="X.com")
             
             await channel.send(embed=embed)
             

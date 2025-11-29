@@ -3,8 +3,6 @@ from discord.ext import commands, tasks
 import os
 import requests
 import json
-import asyncio
-import time
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
@@ -12,21 +10,27 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-DISCORD_TOKEN = os.getenv('DISCORD_BOT_TOKEN')
-DISCORD_CHANNEL_ID = int(os.getenv('DISCORD_CHANNEL_ID', 0))
-TWITTER_BEARER_TOKEN = os.getenv('TWITTER_BEARER_TOKEN')
+DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
+DISCORD_CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID", 0))
+TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN")
 
-# Embed server URL
+# ----------------------------- EMBED SERVER URL -----------------------------
+
+# Your Koyeb embed server
 EMBED_SERVER_URL = "https://ridiculous-cindra-oknonononon-1d15a38f.koyeb.app"
 if EMBED_SERVER_URL:
-    EMBED_SERVER_URL = f"https://{EMBED_SERVER_URL.strip()}" if "://" not in EMBED_SERVER_URL else EMBED_SERVER_URL
+    EMBED_SERVER_URL = (
+        f"https://{EMBED_SERVER_URL.strip()}"
+        if "://" not in EMBED_SERVER_URL
+        else EMBED_SERVER_URL
+    )
 
-# Discord bot
+# ----------------------------- DISCORD SETUP -----------------------------
+
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Tracking posted tweets
 POSTED_TWEETS_FILE = "posted_tweets.json"
 
 
@@ -36,7 +40,7 @@ def load_posted_tweets():
     if Path(POSTED_TWEETS_FILE).exists():
         try:
             return json.load(open(POSTED_TWEETS_FILE))
-        except:
+        except Exception:
             return {}
     return {}
 
@@ -45,55 +49,59 @@ def save_posted_tweets(data):
     json.dump(data, open(POSTED_TWEETS_FILE, "w"), indent=2)
 
 
-# ----------------------------- FIXTWEET FALLBACK -----------------------------
+# ----------------------------- VXTWITTER FALLBACK -----------------------------
 
-def get_fxtwitter(username):
-            """Reliable fallback using vxtwitter API."""
-            try:
-                url = f"https://api.vxtwitter.com/user/{username}"
-                r = requests.get(url, timeout=10)
+def get_fxtwitter(username: str):
+    """Reliable fallback using vxtwitter API."""
+    try:
+        url = f"https://api.vxtwitter.com/user/{username}"
+        r = requests.get(url, timeout=10)
 
-                if r.status_code != 200:
-                    print(f"❌ vxtwitter API returned status {r.status_code}")
-                    return []
+        if r.status_code != 200:
+            print(f"❌ vxtwitter API returned status {r.status_code}")
+            return []
 
-                data = r.json()
+        data = r.json()
+        tweets = []
 
-                tweets = []
+        for t in data.get("tweets", [])[:5]:
+            media_list = []
 
-                for t in data.get("tweets", [])[:5]:
-                    media_list = []
+            if t.get("media"):
+                for m in t["media"]:
+                    media_list.append(
+                        {
+                            "type": m.get("type"),  # "photo", "video", "gif"
+                            "url": m.get("url"),
+                            "preview_image_url": m.get("thumbnail_url"),
+                            "video_url": m.get("url")
+                            if m.get("type") in ["video", "gif"]
+                            else None,
+                        }
+                    )
 
-                    if t.get("media"):
-                        for m in t["media"]:
-                            media_list.append({
-                                "type": m.get("type"),
-                                "url": m.get("url"),
-                                "preview_image_url": m.get("thumbnail_url"),
-                                "video_url": m.get("url") if m.get("type") in ["video", "gif"] else None
-                            })
+            tweets.append(
+                {
+                    "id": str(t["id"]),
+                    "text": t["text"],
+                    "url": t["url"],
+                    "created_at": t.get("created_at", ""),
+                    "metrics": t.get("stats", {}),  # likes, retweets, replies, views
+                    "media": media_list,
+                }
+            )
 
-                    tweets.append({
-                        "id": str(t["id"]),
-                        "text": t["text"],
-                        "url": t["url"],
-                        "created_at": t.get("created_at", ""),
-                        "metrics": t.get("stats", {}),
-                        "media": media_list
-                    })
+        print("✅ vxtwitter fallback: tweets loaded.")
+        return tweets
 
-                print("✅ vxtwitter fallback: tweets loaded.")
-                return tweets
-
-            except Exception as e:
-                print(f"❌ vxtwitter fallback failed: {e}")
-                return []
+    except Exception as e:
+        print(f"❌ vxtwitter fallback failed: {e}")
+        return []
 
 
+# ----------------------------- TWITTER API → INTERNAL FORMAT -----------------------------
 
-# ----------------------------- TWITTER API FETCH -----------------------------
-
-def convert_official_to_internal(data, username):
+def convert_official_to_internal(data, username: str):
     """Convert Twitter API JSON → our internal tweet format."""
     tweets = []
     media_dict = {}
@@ -117,30 +125,38 @@ def convert_official_to_internal(data, username):
                         video_url = v["url"]
                         break
 
-            medias.append({
-                "type": m.get("type"),
-                "url": m.get("url"),
-                "preview_image_url": m.get("preview_image_url"),
-                "video_url": video_url
-            })
+            medias.append(
+                {
+                    "type": m.get("type"),  # "photo", "video", "animated_gif"
+                    "url": m.get("url"),
+                    "preview_image_url": m.get("preview_image_url"),
+                    "video_url": video_url,
+                }
+            )
 
-        tweets.append({
-            "id": t["id"],
-            "text": t["text"],
-            "url": f"https://x.com/{username}/status/{t['id']}",
-            "created_at": t.get("created_at", ""),
-            "metrics": t.get("public_metrics", {}),
-            "media": medias
-        })
+        tweets.append(
+            {
+                "id": t["id"],
+                "text": t["text"],
+                "url": f"https://x.com/{username}/status/{t['id']}",
+                "created_at": t.get("created_at", ""),
+                "metrics": t.get("public_metrics", {}),  # like_count, retweet_count,...
+                "media": medias,
+            }
+        )
 
     return tweets
 
 
-def get_tweets(username):
-    """Try Twitter API → if failing, use FixTweet fallback."""
+def get_tweets(username: str):
+    """
+    Hybrid mode:
+    1. Try Twitter API
+    2. On 429 or error → fallback to vxtwitter
+    """
     try:
         if not TWITTER_BEARER_TOKEN:
-            print("⚠️ No Twitter API token — using FixTweet fallback.")
+            print("⚠️ No Twitter API token — using vxtwitter fallback.")
             return get_fxtwitter(username)
 
         headers = {"Authorization": f"Bearer {TWITTER_BEARER_TOKEN}"}
@@ -153,18 +169,20 @@ def get_tweets(username):
             r = requests.get(url, headers=headers, timeout=10)
 
             if r.status_code == 429:
-                print("⏳ Rate limited (user lookup) → using FixTweet fallback.")
+                print("⏳ Rate limited (user lookup) → using vxtwitter fallback.")
                 return get_fxtwitter(username)
 
             if r.status_code != 200:
-                print(f"❌ Twitter user lookup failed [{r.status_code}] → FixTweet fallback.")
+                print(
+                    f"❌ Twitter user lookup failed [{r.status_code}] → vxtwitter fallback."
+                )
                 return get_fxtwitter(username)
 
             user_id = r.json()["data"]["id"]
             break
 
         if not user_id:
-            print("⚠️ No user_id → FixTweet fallback.")
+            print("⚠️ No user_id → vxtwitter fallback.")
             return get_fxtwitter(username)
 
         # FETCH TWEETS
@@ -173,18 +191,18 @@ def get_tweets(username):
             "max_results": 5,
             "tweet.fields": "created_at,public_metrics",
             "expansions": "attachments.media_keys,author_id",
-            "media.fields": "media_key,type,url,preview_image_url,variants,public_metrics"
+            "media.fields": "media_key,type,url,preview_image_url,variants,public_metrics",
         }
 
         for attempt in range(max_retries):
             r = requests.get(tweets_url, headers=headers, params=params, timeout=10)
 
             if r.status_code == 429:
-                print("⏳ Rate limited (fetch tweets) → FixTweet fallback.")
+                print("⏳ Rate limited (fetch tweets) → vxtwitter fallback.")
                 return get_fxtwitter(username)
 
             if r.status_code != 200:
-                print(f"❌ Twitter API returned {r.status_code} → FixTweet fallback.")
+                print(f"❌ Twitter API returned {r.status_code} → vxtwitter fallback.")
                 return get_fxtwitter(username)
 
             break
@@ -192,62 +210,81 @@ def get_tweets(username):
         return convert_official_to_internal(r.json(), username)
 
     except Exception as e:
-        print(f"❌ Twitter API crashed ({e}) → FixTweet fallback.")
+        print(f"❌ Twitter API crashed ({e}) → vxtwitter fallback.")
         return get_fxtwitter(username)
 
 
 # ----------------------------- POSTING -----------------------------
+
+def extract_media(tweet):
+    image_url = None
+    video_url = None
+
+    for m in tweet.get("media", []):
+        m_type = m.get("type")
+        if m_type == "photo":
+            if not image_url:  # first photo
+                image_url = m.get("url")
+        elif m_type in ["video", "gif", "animated_gif"]:
+            video_url = m.get("video_url")
+            # preview image if available
+            image_url = m.get("preview_image_url", image_url)
+
+    return image_url, video_url
+
+
+def extract_metrics(tweet):
+    """Normalize metrics from either Twitter API or vxtwitter."""
+    metrics = tweet.get("metrics", {}) or {}
+
+    likes = (
+        metrics.get("like_count")
+        if "like_count" in metrics
+        else metrics.get("likes", 0)
+    )
+    retweets = (
+        metrics.get("retweet_count")
+        if "retweet_count" in metrics
+        else metrics.get("retweets", 0)
+    )
+    replies = (
+        metrics.get("reply_count")
+        if "reply_count" in metrics
+        else metrics.get("replies", 0)
+    )
+    views = metrics.get("impression_count", metrics.get("views", 0))
+
+    return likes, retweets, replies, views
+
 
 async def post_one_tweet(tweet, channel, posted, force=False):
 
     if not force and tweet["id"] in posted:
         return
 
-    image_url = None
-    video_url = None
-
-    if tweet["media"]:
-        for m in tweet["media"]:
-            if m["type"] == "photo":
-                image_url = m.get("url")
-            elif m["type"] in ["video", "gif", "animated_gif"]:
-                video_url = m.get("video_url")
-                image_url = m.get("preview_image_url", image_url)
+    image_url, video_url = extract_media(tweet)
+    likes, retweets, replies, views = extract_metrics(tweet)
 
     # Build embed server link
     embed_url = (
-    f"{EMBED_SERVER_URL}"
-    f"?title=@NFL"
-    f"&name=NFL"
-    f"&handle=NFL"
-    f"&text={quote(tweet['text'])}"
-    f"&likes={tweet['metrics'].get('like_count', 0)}"
-    f"&retweets={tweet['metrics'].get('retweet_count', 0)}"
-    f"&replies={tweet['metrics'].get('reply_count', 0)}"
-    f"&views={tweet['metrics'].get('impression_count', 0)}"
-)
-
-if image_url:
-    embed_url += f"&image={quote(image_url)}"
-
-if video_url:
-    embed_url += f"&video={quote(video_url)}"
-views={tweet['metrics'].get('views', 0)}"
+        f"{EMBED_SERVER_URL}"
+        f"?title=@NFL"
+        f"&name=NFL"
+        f"&handle=NFL"
+        f"&text={quote(tweet['text'])}"
+        f"&likes={likes}"
+        f"&retweets={retweets}"
+        f"&replies={replies}"
+        f"&views={views}"
     )
 
     if image_url:
         embed_url += f"&image={quote(image_url)}"
+
     if video_url:
         embed_url += f"&video={quote(video_url)}"
 
-    embed = discord.Embed(description=f"[View Tweet]({tweet['url']})", color=0x1F51BA)
-    embed.set_author(name="@NFL", url=tweet["url"])
-
-    embed.set_image(url=image_url) if image_url else None
-    embed.set_video(url=video_url) if video_url else None
-
-    embed.set_footer(text="X.com")
-
+    # Just send the URL – Discord will unfurl it using your Koyeb embed server
     await channel.send(embed_url)
 
     posted[tweet["id"]] = True
@@ -257,7 +294,7 @@ views={tweet['metrics'].get('views', 0)}"
 # ----------------------------- STARTUP FETCH -----------------------------
 
 async def fetch_startup_tweets():
-    """Always fetch top 2 tweets instantly using fallback if needed."""
+    """Always fetch top 2 tweets instantly using hybrid logic."""
 
     channel = bot.get_channel(DISCORD_CHANNEL_ID)
     if not channel:
@@ -292,7 +329,8 @@ async def on_ready():
         print("🔄 Tweet checker started")
 
 
-@tasks.loop(minutes=1)
+# Check every 2 minutes instead of 1 to reduce 429
+@tasks.loop(minutes=2)
 async def tweet_checker():
     channel = bot.get_channel(DISCORD_CHANNEL_ID)
     if not channel:
@@ -318,5 +356,8 @@ async def before_loop():
 # ----------------------------- START BOT -----------------------------
 
 if __name__ == "__main__":
-    print("🚀 Starting Twitter bot...")
-    bot.run(DISCORD_TOKEN)
+    if not DISCORD_TOKEN or not DISCORD_CHANNEL_ID:
+        print("❌ Missing DISCORD_BOT_TOKEN or DISCORD_CHANNEL_ID")
+    else:
+        print("🚀 Starting Twitter bot...")
+        bot.run(DISCORD_TOKEN)

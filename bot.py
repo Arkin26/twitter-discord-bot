@@ -189,36 +189,64 @@ async def post_one_tweet(tweet, channel, posted, force=False):
     image_url = None
     video_url = None
 
+    # Pick media
     for m in tweet.get("media", []):
         if m["type"] == "photo":
             image_url = m["url"]
         elif m["type"] in ["video", "gif", "animated_gif"]:
             video_url = m["video_url"]
-            image_url = m["preview_image_url"]
+            image_url = m.get("preview_image_url", image_url)
 
-    # Build embed server link (FixTweet style)
-    embed_url = (
-        f"{EMBED_SERVER_URL}"
-        f"?title=@NFL"
-        f"&name=NFL"
-        f"&handle=NFL"
-        f"&text={quote(tweet['text'])}"
-        f"&likes={tweet['metrics'].get('like_count', 0)}"
-        f"&retweets={tweet['metrics'].get('retweet_count', 0)}"
-        f"&replies={tweet['metrics'].get('reply_count', 0)}"
-        f"&views={tweet['metrics'].get('impression_count', 0)}"
+    # ---- Build Discord Embed ----
+    embed = discord.Embed(
+        description=tweet["text"],
+        color=0x1DA1F2  # Twitter blue
     )
 
+    embed.set_author(
+        name="NFL (@NFL)",
+        url=tweet["url"],
+        icon_url="https://abs.twimg.com/icons/apple-touch-icon-192x192.png"
+    )
+
+    # Add stats
+    stats = tweet["metrics"]
+    embed.add_field(
+        name="💬 Replies",
+        value=stats.get("reply_count", 0),
+        inline=True
+    )
+    embed.add_field(
+        name="🔁 Retweets",
+        value=stats.get("retweet_count", 0),
+        inline=True
+    )
+    embed.add_field(
+        name="❤️ Likes",
+        value=stats.get("like_count", 0),
+        inline=True
+    )
+    embed.add_field(
+        name="👁 Views",
+        value=stats.get("impression_count", 0),
+        inline=True
+    )
+
+    # Image / Video
     if image_url:
-        embed_url += "&image=" + quote(image_url)
+        embed.set_image(url=image_url)
+
+    # For video — Discord needs the URL directly, not inside embed
     if video_url:
-        embed_url += "&video=" + quote(video_url)
+        await channel.send(video_url)
 
-    # THIS IS THE IMPORTANT PART → send ONLY URL, no embed
-    await channel.send(embed_url)
+    # Send the embed
+    await channel.send(embed=embed)
 
+    # Mark as posted
     posted[tweet["id"]] = True
-    print("✅ Posted:", tweet["id"])
+    print("Posted", tweet["id"])
+
 
 
 # ---------------------------------------------------------

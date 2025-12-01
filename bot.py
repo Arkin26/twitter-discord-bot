@@ -8,16 +8,17 @@ from urllib.parse import quote
 from dotenv import load_dotenv
 import re
 
-
-
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 DISCORD_CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID", 0))
 TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN")
 
+# YOUR EMBED SERVER
 EMBED_SERVER_URL = "https://ridiculous-cindra-oknonononon-1d15a38f.koyeb.app/"
 
+# YOUR CDN PROXY
+CDN_PROXY = "https://cdn.ahazek.org/video?url="
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -112,7 +113,7 @@ def convert_tweets(data, username):
 
             media_list.append({
                 "type": m.get("type"),
-                "url": m.get("url"),
+                "url": m["url"],
                 "preview_image_url": m.get("preview_image_url"),
                 "video_url": video_url
             })
@@ -169,7 +170,7 @@ def get_tweets(username):
 
 
 # ============================================================
-# SEND EMBED
+# SEND EMBED (AUTO POST)
 # ============================================================
 
 async def send_tweet(tweet, channel, posted, force=False):
@@ -187,7 +188,7 @@ async def send_tweet(tweet, channel, posted, force=False):
             video_url = m["video_url"]
             image_url = m.get("preview_image_url")
 
-    # Build Discord embed (NO URL SEND)
+    # Build simple embed (no video here)
     embed = discord.Embed(
         description=tweet["text"],
         color=0x1DA1F2
@@ -210,11 +211,10 @@ async def send_tweet(tweet, channel, posted, force=False):
 
     await channel.send(embed=embed)
 
+    # SEND VIDEO BELOW (auto-post)
     if video_url:
-    # use your CDN proxy instead of direct mp4
-       proxied = f"https://cdn.ahazek.org/video?url={quote(video_url, safe='')}"
-       await channel.send(proxied)
-
+        proxied = CDN_PROXY + quote(video_url, safe='')
+        await channel.send(proxied)
 
     posted[tweet["id"]] = True
     print("Posted", tweet["id"])
@@ -257,6 +257,11 @@ async def tweet_loop():
 
     save_posted(posted)
 
+
+# ============================================================
+# !tweet COMMAND — FIXTWEET STYLE EMBED + VIDEO INSIDE
+# ============================================================
+
 TWEET_URL_REGEX = r"(?:twitter\.com|x\.com)/([^/]+)/status/(\d+)"
 
 @bot.command()
@@ -269,13 +274,10 @@ async def tweet(ctx, url: str):
     username = match.group(1)
     tweet_id = match.group(2)
 
-    # Fetch tweets for that username (Fallback handles rate limits)
     tweets = get_tweets(username)
-
     if not tweets:
         return await ctx.send("❌ Could not fetch tweets for user.")
 
-    # Look for the requested tweet
     target = None
     for t in tweets:
         if t["id"] == tweet_id:
@@ -283,9 +285,8 @@ async def tweet(ctx, url: str):
             break
 
     if not target:
-        return await ctx.send("❌ Tweet not found (maybe older than last 5).")
+        return await ctx.send("❌ Tweet not found.")
 
-    # --- Extract media ---
     image_url = None
     video_url = None
 
@@ -296,7 +297,7 @@ async def tweet(ctx, url: str):
             video_url = m.get("video_url")
             image_url = m.get("preview_image_url", image_url)
 
-    # --- Build embed URL using your embed server ---
+    # BUILD EMBED PAGE URL (FixTweet style)
     embed_url = (
         f"{EMBED_SERVER_URL}"
         f"?title=@{username}"
@@ -309,16 +310,17 @@ async def tweet(ctx, url: str):
         f"&views={target['metrics'].get('impression_count', 0)}"
     )
 
+    # embed image
     if image_url:
         embed_url += "&image=" + quote(image_url)
+
+    # embed VIDEO INSIDE THE PAGE — USE CDN PROXY
     if video_url:
-        embed_url += "&video=" + quote(video_url)
+        proxied_for_embed = CDN_PROXY + quote(video_url, safe='')
+        embed_url += "&video=" + quote(proxied_for_embed)
 
-    # Send to Discord
+    # SEND ONE MESSAGE ONLY → DISCORD UNFURLS VIDEO INSIDE
     await ctx.send(embed_url)
-
-
-
 
 
 bot.run(DISCORD_TOKEN)

@@ -18,6 +18,14 @@ TWITTER_BEARER_TOKEN = os.getenv("TWITTER_BEARER_TOKEN")
 EMBED_SERVER_URL = "https://ridiculous-cindra-oknonononon-1d15a38f.koyeb.app/"
 CDN_PROXY = "https://cdn.ahazek.org/get?url="
 
+# REQUIRED FOR TWITTER + VX
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    )
+}
+
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -47,7 +55,11 @@ def save_posted(data):
 
 def get_vx(username):
     try:
-        r = requests.get(f"https://api.vxtwitter.com/user/{username}", timeout=10)
+        r = requests.get(
+            f"https://api.vxtwitter.com/user/{username}",
+            timeout=10,
+            headers=HEADERS
+        )
         if r.status_code != 200:
             return []
 
@@ -113,7 +125,7 @@ def convert_tweets(data, username):
             })
 
         tweets.append({
-            "id": t["id"],
+            "id": str(t["id"]),  # ALWAYS STRING
             "text": t["text"],
             "url": f"https://x.com/{username}/status/{t['id']}",
             "metrics": t.get("public_metrics", {}),
@@ -128,11 +140,16 @@ def get_tweets(username):
         return get_vx(username)
 
     try:
-        headers = {"Authorization": f"Bearer {TWITTER_BEARER_TOKEN}"}
+        auth_headers = {
+            **HEADERS,
+            "Authorization": f"Bearer {TWITTER_BEARER_TOKEN}"
+        }
 
+        # Lookup user
         u = requests.get(
             f"https://api.twitter.com/2/users/by/username/{username}",
-            headers=headers
+            headers=auth_headers,
+            timeout=10
         )
 
         if u.status_code != 200:
@@ -147,9 +164,12 @@ def get_tweets(username):
             "media.fields": "media_key,type,url,preview_image_url,variants"
         }
 
+        # Fetch tweets
         t = requests.get(
             f"https://api.twitter.com/2/users/{user_id}/tweets",
-            headers=headers, params=params
+            headers=auth_headers,
+            params=params,
+            timeout=10
         )
 
         if t.status_code != 200:
@@ -162,7 +182,7 @@ def get_tweets(username):
 
 
 # ============================================================
-# AUTO POST TWEET
+# AUTO POST (works fine)
 # ============================================================
 
 async def send_tweet(tweet, channel, posted, force=False):
@@ -179,13 +199,9 @@ async def send_tweet(tweet, channel, posted, force=False):
             video_url = m["video_url"]
             image_url = m.get("preview_image_url", image_url)
 
-    # BASIC embed for auto mode
     embed = discord.Embed(description=tweet["text"], color=0x1DA1F2)
-    embed.set_author(
-        name="NFL (@NFL)",
-        url=tweet["url"],
-        icon_url="https://abs.twimg.com/icons/apple-touch-icon-192x192.png"
-    )
+    embed.set_author(name="NFL (@NFL)", url=tweet["url"],
+                     icon_url="https://abs.twimg.com/icons/apple-touch-icon-192x192.png")
 
     stats = tweet["metrics"]
     embed.add_field(name="💬", value=stats.get("reply_count", 0))
@@ -198,7 +214,6 @@ async def send_tweet(tweet, channel, posted, force=False):
 
     await channel.send(embed=embed)
 
-    # ONLY auto poster sends separate video link
     if video_url:
         proxied = CDN_PROXY + quote(video_url, safe="")
         await channel.send(proxied)
@@ -239,8 +254,8 @@ async def on_ready():
 async def tweet_loop():
     ch = bot.get_channel(DISCORD_CHANNEL_ID)
     posted = load_posted()
-
     tweets = get_tweets("NFL")
+
     for t in tweets:
         await send_tweet(t, ch, posted)
 
@@ -248,7 +263,7 @@ async def tweet_loop():
 
 
 # ============================================================
-# !tweet FULL FIXTWEET EMBED
+# !tweet COMMAND (FULL FIXTWEET STYLE)
 # ============================================================
 
 TWEET_URL_REGEX = r"(?:twitter\.com|x\.com)/([^/]+)/status/(\d+)"
@@ -261,16 +276,14 @@ async def tweet(ctx, url: str):
 
     username = match.group(1)
     tweet_id = match.group(2)
+
     print("USERNAME EXTRACTED:", username)
     print("TWEET ID:", tweet_id)
 
-
-    # fetch tweets
     tweets = get_tweets(username)
     print("FOUND TWEET IDS:", [str(t["id"]) for t in tweets])
 
-
-    # FIXED ID MATCHING — ALWAYS STRING COMPARE
+    # FIXED STRING ID MATCH
     target = next((t for t in tweets if str(t["id"]) == str(tweet_id)), None)
 
     if not target:
@@ -308,9 +321,7 @@ async def tweet(ctx, url: str):
         embed_url += "&video=" + quote(video_url)
 
     print("EMBED_URL:", embed_url)
-
     await ctx.send(embed_url)
-
 
 
 bot.run(DISCORD_TOKEN)

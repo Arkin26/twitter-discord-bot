@@ -264,6 +264,8 @@ async def tweet(ctx, url: str):
 
     # fetch tweets
     tweets = get_tweets(username)
+    print("FOUND TWEET IDS:", [str(t["id"]) for t in tweets])
+
 
     # FIXED ID MATCHING — ALWAYS STRING COMPARE
     target = next((t for t in tweets if str(t["id"]) == str(tweet_id)), None)

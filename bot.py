@@ -9,6 +9,9 @@ from dotenv import load_dotenv
 import re
 
 load_dotenv()
+print("TWITTER_BEARER_TOKEN (raw):", os.getenv("TWITTER_BEARER_TOKEN"))
+print("LENGTH:", len(os.getenv("TWITTER_BEARER_TOKEN") or ""))
+
 
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 DISCORD_CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID", 0))

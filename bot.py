@@ -261,6 +261,9 @@ async def tweet(ctx, url: str):
 
     username = match.group(1)
     tweet_id = match.group(2)
+    print("USERNAME EXTRACTED:", username)
+    print("TWEET ID:", tweet_id)
+
 
     # fetch tweets
     tweets = get_tweets(username)

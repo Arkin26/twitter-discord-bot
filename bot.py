@@ -333,6 +333,9 @@ async def tweet(ctx, url: str):
     if video_url:
         embed_url += "&video=" + quote(video_url)
 
+    print("EMBED_URL:", embed_url)
+
+
     # SEND ONLY THE EMBED URL
     await ctx.send(embed_url)
 

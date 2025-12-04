@@ -143,49 +143,42 @@ def convert_tweets(data, username):
 
 
 def get_tweets(username):
-    if not TWITTER_BEARER_TOKEN:
-        return get_vx(username)
-
+    # ALWAYS use VXTwitter -> no token needed, works every time
     try:
-        auth_headers = {
-            **HEADERS,
-            "Authorization": f"Bearer {TWITTER_BEARER_TOKEN}"
-        }
+        print("USING VX TWITTER FOR:", username)
+        r = requests.get(f"https://api.vxtwitter.com/user/{username}", timeout=10)
+        if r.status_code != 200:
+            print("VX ERROR:", r.status_code)
+            return []
 
-        # Lookup user
-        u = requests.get(
-            f"https://api.twitter.com/2/users/by/username/{username}",
-            headers=auth_headers,
-            timeout=10
-        )
+        data = r.json()
+        tweets = []
 
-        if u.status_code != 200:
-            return get_vx(username)
+        for t in data.get("tweets", [])[:5]:
+            media = []
+            for m in t.get("media", []):
+                media.append({
+                    "type": m.get("type"),
+                    "url": m.get("url"),
+                    "preview_image_url": m.get("thumbnail_url"),
+                    "video_url": m.get("url") if m.get("type") in ["video", "gif"] else None
+                })
 
-        user_id = u.json()["data"]["id"]
+            tweets.append({
+                "id": str(t["id"]),
+                "text": t["text"],
+                "url": t["url"],
+                "metrics": t.get("stats", {}),
+                "media": media
+            })
 
-        params = {
-            "max_results": 5,
-            "tweet.fields": "public_metrics",
-            "expansions": "attachments.media_keys",
-            "media.fields": "media_key,type,url,preview_image_url,variants"
-        }
+        print("VX RETURNED IDS:", [tt["id"] for tt in tweets])
+        return tweets
 
-        # Fetch tweets
-        t = requests.get(
-            f"https://api.twitter.com/2/users/{user_id}/tweets",
-            headers=auth_headers,
-            params=params,
-            timeout=10
-        )
+    except Exception as e:
+        print("VX CRASH:", e)
+        return []
 
-        if t.status_code != 200:
-            return get_vx(username)
-
-        return convert_tweets(t.json(), username)
-
-    except:
-        return get_vx(username)
 
 
 # ============================================================

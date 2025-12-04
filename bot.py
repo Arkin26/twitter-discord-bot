@@ -20,9 +20,10 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ============================================
-# FETCH TWEET FROM FIXTWEET (fxtwitter)
-# ============================================
+
+# ---------------------------------------------------------
+# Fetch tweet using FixTweet API
+# ---------------------------------------------------------
 
 def fetch_tweet(tweet_id):
     url = f"https://api.fxtwitter.com/status/{tweet_id}"
@@ -34,31 +35,32 @@ def fetch_tweet(tweet_id):
     try:
         data = r.json()
     except:
-        print("BAD JSON RESPONSE:", r.text)
+        print("BAD JSON:", r.text)
         return None
 
-    # ensure structure is correct
     if "tweet" not in data:
-        print("ERROR: No tweet in response")
+        print("MISSING TWEET in response")
         return None
 
     return data["tweet"]
 
 
-# ============================================================
-# AUTO POST FROM NFL USER
-# ============================================================
-
 def fetch_latest_nfl():
     url = "https://api.fxtwitter.com/user/NFL"
     print("FETCH LATEST:", url)
     r = requests.get(url, timeout=10)
+
     try:
         data = r.json()
-        return data.get("tweets", [])[:5]
     except:
         return []
 
+    return data.get("tweets", [])[:5]
+
+
+# ---------------------------------------------------------
+# Auto poster
+# ---------------------------------------------------------
 
 async def send_auto(tweet, channel):
     embed = discord.Embed(description=tweet["text"], color=0x1DA1F2)
@@ -75,28 +77,29 @@ async def send_auto(tweet, channel):
     await channel.send(embed=embed)
 
     if tweet["media"].get("videos"):
-        v = tweet["media"]["videos"][0]["url"]
-        await channel.send(CDN_PROXY + quote(v, safe=""))
+        raw = tweet["media"]["videos"][0]["url"]
+        await channel.send(CDN_PROXY + quote(raw, safe=""))
 
 
 async def startup():
     await bot.wait_until_ready()
     ch = bot.get_channel(DISCORD_CHANNEL_ID)
-
     tweets = fetch_latest_nfl()
+
     for t in tweets[:2]:
         await send_auto(t, ch)
 
 
-# ============================================================
-# !tweet COMMAND – FULL FIXTWEET STYLE
-# ============================================================
+# ---------------------------------------------------------
+# !tweet command (FixTweet-style)
+# ---------------------------------------------------------
 
 TWEET_URL_REGEX = r"(?:twitter\.com|x\.com)/([^/]+)/status/(\d+)"
 
 @bot.command()
 async def tweet(ctx, url: str):
     match = re.search(TWEET_URL_REGEX, url)
+
     if not match:
         return await ctx.send("❌ Invalid Twitter/X link.")
 
@@ -107,16 +110,17 @@ async def tweet(ctx, url: str):
     print("LOOKUP TWEET ID:", tweet_id)
 
     tweet = fetch_tweet(tweet_id)
+
     if not tweet:
-        return await ctx.send("❌ Could not fetch tweet.")
+        return await ctx.send("❌ Could not fetch tweet (maybe deleted or protected).")
 
     print("TWEET FETCH SUCCESS")
 
     text = tweet["text"]
-    likes = tweet["stats"]["likes"]
-    retweets = tweet["stats"]["retweets"]
-    replies = tweet["stats"]["replies"]
-    views = tweet["stats"]["views"]
+    likes = tweet["likes"]
+    retweets = tweet["retweets"]
+    replies = tweet["replies"]
+    views = tweet["views"]
 
     image_url = None
     video_url = None
@@ -128,7 +132,7 @@ async def tweet(ctx, url: str):
         raw = tweet["media"]["videos"][0]["url"]
         video_url = CDN_PROXY + quote(raw, safe="")
 
-    # Build embed server URL
+    # Build FixTweet-style URL
     embed_url = (
         f"{EMBED_SERVER_URL}"
         f"?title=@{username}"
@@ -152,7 +156,7 @@ async def tweet(ctx, url: str):
     await ctx.send(embed_url)
 
 
-# ============================================================
+# ---------------------------------------------------------
 
 @bot.event
 async def on_ready():

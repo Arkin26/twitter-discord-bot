@@ -1,166 +1,156 @@
 import discord
 from discord.ext import commands, tasks
 import os
+import json
 import requests
-from urllib.parse import quote
-from dotenv import load_dotenv
 import re
+from dotenv import load_dotenv
 
 load_dotenv()
 
 DISCORD_TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 DISCORD_CHANNEL_ID = int(os.getenv("DISCORD_CHANNEL_ID"))
-EMBED_SERVER_URL = "https://embed.ahazek.org/"
-CDN_PROXY = "https://cdn.ahazek.org/get?url="
 
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# ---------------------------------------------------------
-# Fetch tweet from FXTwitter by ID (MOST RELIABLE)
-# ---------------------------------------------------------
-def fetch_tweet_by_id(tweet_id):
-    url = f"https://api.fxtwitter.com/status/{tweet_id}"
-    print("FETCH:", url)
+# Track posted tweets to avoid duplicates
+POSTED_FILE = "posted_tweets.json"
 
-    r = requests.get(url, timeout=10)
-    print("STATUS:", r.status_code)
+def load_posted():
+    """Load list of already posted tweet IDs"""
+    if os.path.exists(POSTED_FILE):
+        try:
+            with open(POSTED_FILE, 'r') as f:
+                return json.load(f)
+        except:
+            return []
+    return []
 
-    if r.status_code != 200:
-        return None
+def save_posted(tweet_ids):
+    """Save posted tweet IDs (keep last 100)"""
+    with open(POSTED_FILE, 'w') as f:
+        json.dump(tweet_ids[-100:], f, indent=2)
 
-    data = r.json()
-    print("TWEET FETCH SUCCESS")
-
-    return data.get("tweet")
-
-
-# ---------------------------------------------------------
-# Build embed-server URL (FixTweet style)
-# ---------------------------------------------------------
-def build_embed_url(tweet):
-    username = tweet["author"]["screen_name"]
-    text = tweet["text"]
-
-    likes = tweet["stats"]["likes"]
-    retweets = tweet["stats"]["retweets"]
-    replies = tweet["stats"]["replies"]
-    views = tweet["stats"].get("views", 0)
-
-    # Find media
-    image_url = None
-    video_url = None
-
-    if tweet.get("media"):
-        for m in tweet["media"]:
-            if m["type"] == "photo":
-                image_url = m["url"]
-            elif m["type"] == "video":
-                # proxy the video
-                raw = m["variants"][0]["url"]
-                video_url = CDN_PROXY + quote(raw, safe="")
-
-    # build link
-    url = (
-        f"{EMBED_SERVER_URL}"
-        f"?title=@{username}"
-        f"&text={quote(text)}"
-        f"&likes={likes}"
-        f"&retweets={retweets}"
-        f"&replies={replies}"
-        f"&views={views}"
-    )
-
-    if image_url:
-        url += "&image=" + quote(image_url)
-
-    if video_url:
-        url += "&video=" + quote(video_url)
-
-    print("EMBED_URL:", url)
-    return url
-
-
-# ---------------------------------------------------------
-# AUTO FETCH LATEST TWEET FROM NFL
-# ---------------------------------------------------------
-def get_latest_nfl_tweet():
-    url = "https://api.fxtwitter.com/user/NFL"
-    print("FETCH LATEST:", url)
-
-    r = requests.get(url, timeout=10)
-    if r.status_code != 200:
-        print("LATEST ERROR:", r.status_code)
-        return None
-
-    data = r.json()
-    tweets = data.get("tweets")
-
-    if not tweets:
-        print("NO TWEETS FOUND")
-        return None
-
-    return tweets[0]  # newest tweet
-
-
-# ---------------------------------------------------------
-# STARTUP EVENT
-# ---------------------------------------------------------
-async def startup():
-    await bot.wait_until_ready()
-    ch = bot.get_channel(DISCORD_CHANNEL_ID)
-
-    t = get_latest_nfl_tweet()
-    if not t:
-        return
-
-    embed_url = build_embed_url(t)
-    await ch.send(embed_url)
-
+# Load posted tweets on startup
+posted_tweets = load_posted()
 
 @bot.event
 async def on_ready():
-    print("Logged in as:", bot.user)
-    bot.loop.create_task(startup())
+    print(f"✅ Bot logged in as: {bot.user}")
+    print(f"📺 Monitoring channel ID: {DISCORD_CHANNEL_ID}")
+    print(f"📝 Already posted {len(posted_tweets)} tweets")
+    
+    # Start the auto-posting loop
     tweet_loop.start()
 
-
-# ---------------------------------------------------------
-# LOOP (check every 1 minute)
-# ---------------------------------------------------------
-@tasks.loop(minutes=1)
+@tasks.loop(minutes=2)
 async def tweet_loop():
-    ch = bot.get_channel(DISCORD_CHANNEL_ID)
-
-    t = get_latest_nfl_tweet()
-    if not t:
+    """Check for new NFL tweets every 2 minutes"""
+    channel = bot.get_channel(DISCORD_CHANNEL_ID)
+    
+    if not channel:
+        print("❌ Channel not found!")
         return
-
-    embed_url = build_embed_url(t)
-    await ch.send(embed_url)
-
-
-# ---------------------------------------------------------
-# !tweet COMMAND
-# ---------------------------------------------------------
-TWEET_URL_REGEX = r"(?:twitter\.com|x\.com)/[^/]+/status/(\d+)"
+    
+    try:
+        print("🔍 Checking for new NFL tweets...")
+        
+        # Fetch latest tweets from NFL account
+        url = "https://api.fxtwitter.com/NFL"
+        response = requests.get(url, timeout=10)
+        
+        if response.status_code != 200:
+            print(f"❌ FxTwitter API error: {response.status_code}")
+            return
+        
+        data = response.json()
+        tweets = data.get("tweets", [])
+        
+        if not tweets:
+            print("⚠️ No tweets found")
+            return
+        
+        # Check the latest 5 tweets for any new ones
+        new_count = 0
+        for tweet in tweets[:5]:
+            tweet_id = tweet.get("id")
+            
+            # Skip if already posted
+            if not tweet_id or tweet_id in posted_tweets:
+                continue
+            
+            # Get username
+            username = tweet.get("author", {}).get("screen_name", "NFL")
+            
+            # Build FxTwitter link - Discord will auto-embed with video!
+            fxtwitter_url = f"https://fxtwitter.com/{username}/status/{tweet_id}"
+            
+            # Send to Discord
+            await channel.send(fxtwitter_url)
+            
+            # Track it
+            posted_tweets.append(tweet_id)
+            new_count += 1
+            
+            print(f"✅ Posted tweet: {tweet_id}")
+        
+        # Save to file
+        if new_count > 0:
+            save_posted(posted_tweets)
+            print(f"📊 Posted {new_count} new tweet(s)")
+        else:
+            print("✓ No new tweets")
+            
+    except Exception as e:
+        print(f"❌ Error in tweet loop: {e}")
 
 @bot.command()
 async def tweet(ctx, url: str):
-    match = re.search(TWEET_URL_REGEX, url)
-    if not match:
-        return await ctx.send("❌ Invalid Tweet URL")
+    """
+    Manually post any tweet with working video embed
+    Usage: !tweet https://twitter.com/user/status/123456
+    """
+    try:
+        # Extract tweet ID and username from URL
+        match = re.search(r"(?:twitter\.com|x\.com)/([^/]+)/status/(\d+)", url)
+        
+        if not match:
+            return await ctx.send("❌ Invalid tweet URL. Use: `!tweet https://twitter.com/user/status/123`")
+        
+        username = match.group(1)
+        tweet_id = match.group(2)
+        
+        # Build FxTwitter link
+        fxtwitter_url = f"https://fxtwitter.com/{username}/status/{tweet_id}"
+        
+        # Send it - Discord handles the rest!
+        await ctx.send(fxtwitter_url)
+        
+        print(f"✅ Manual tweet posted: {tweet_id}")
+        
+    except Exception as e:
+        await ctx.send(f"❌ Error: {e}")
+        print(f"❌ Command error: {e}")
 
-    tweet_id = match.group(1)
-    print("LOOKUP TWEET:", tweet_id)
+@bot.command()
+async def status(ctx):
+    """Check bot status"""
+    await ctx.send(
+        f"✅ **Bot Status**\n"
+        f"📺 Channel: <#{DISCORD_CHANNEL_ID}>\n"
+        f"📝 Tracked tweets: {len(posted_tweets)}\n"
+        f"🔄 Loop running: {tweet_loop.is_running()}"
+    )
 
-    t = fetch_tweet_by_id(tweet_id)
-    if not t:
-        return await ctx.send("❌ Could not fetch tweet")
+@bot.command()
+async def clear(ctx):
+    """Clear posted tweets history (admin only)"""
+    global posted_tweets
+    posted_tweets = []
+    save_posted(posted_tweets)
+    await ctx.send("✅ Cleared posted tweets history!")
 
-    embed_url = build_embed_url(t)
-    await ctx.send(embed_url)
-
-
+# Run the bot
 bot.run(DISCORD_TOKEN)

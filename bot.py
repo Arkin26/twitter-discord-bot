@@ -5,6 +5,7 @@ import json
 import requests
 import re
 from dotenv import load_dotenv
+import feedparser
 
 load_dotenv()
 
@@ -36,6 +37,32 @@ def save_posted(tweet_ids):
 # Load posted tweets on startup
 posted_tweets = load_posted()
 
+def get_nfl_tweets_from_rss():
+    """Fetch latest NFL tweets using RSS feed via Nitter"""
+    try:
+        # Using nitter.poast.org RSS feed (public Nitter instance)
+        rss_url = "https://nitter.poast.org/NFL/rss"
+        
+        feed = feedparser.parse(rss_url)
+        
+        tweets = []
+        for entry in feed.entries[:10]:  # Get last 10 tweets
+            # Extract tweet ID from link
+            link = entry.link
+            match = re.search(r'/status/(\d+)', link)
+            if match:
+                tweet_id = match.group(1)
+                tweets.append({
+                    'id': tweet_id,
+                    'text': entry.title,
+                    'link': link
+                })
+        
+        return tweets
+    except Exception as e:
+        print(f"❌ RSS fetch error: {e}")
+        return []
+
 @bot.event
 async def on_ready():
     print(f"✅ Bot logged in as: {bot.user}")
@@ -57,56 +84,26 @@ async def tweet_loop():
     try:
         print("🔍 Checking for new NFL tweets...")
         
-        # Fetch latest tweets from NFL account - try multiple endpoints
-        url = "https://api.fxtwitter.com/NFL"
-        response = requests.get(url, timeout=10)
-        
-        if response.status_code != 200:
-            print(f"❌ FxTwitter API error: {response.status_code}")
-            print(f"Response: {response.text[:200]}")
-            return
-        
-        data = response.json()
-        print(f"📊 API Response keys: {data.keys()}")
-        
-        # Try different response structures
-        tweets = data.get("tweets", [])
-        if not tweets and "tweet" in data:
-            tweets = [data["tweet"]]  # Single tweet response
+        # Get tweets from RSS
+        tweets = get_nfl_tweets_from_rss()
         
         if not tweets:
-            print("⚠️ No tweets found in response")
-            print(f"Full response: {data}")
-            
-            # Try alternative: fetch user timeline
-            alt_url = "https://api.fxtwitter.com/user/NFL"
-            print(f"🔄 Trying alternative endpoint: {alt_url}")
-            alt_response = requests.get(alt_url, timeout=10)
-            
-            if alt_response.status_code == 200:
-                alt_data = alt_response.json()
-                tweets = alt_data.get("tweets", [])
-                if tweets:
-                    print(f"✅ Got {len(tweets)} tweets from alternative endpoint")
-            
-            if not tweets:
-                print("❌ Still no tweets found")
-                return
+            print("⚠️ No tweets found from RSS")
+            return
         
-        # Check the latest 5 tweets for any new ones
+        print(f"📊 Found {len(tweets)} total tweets")
+        
+        # Check for new tweets
         new_count = 0
-        for tweet in tweets[:5]:
-            tweet_id = tweet.get("id")
+        for tweet in tweets:
+            tweet_id = tweet['id']
             
             # Skip if already posted
-            if not tweet_id or tweet_id in posted_tweets:
+            if tweet_id in posted_tweets:
                 continue
             
-            # Get username
-            username = tweet.get("author", {}).get("screen_name", "NFL")
-            
             # Build FxTwitter link - Discord will auto-embed with video!
-            fxtwitter_url = f"https://fxtwitter.com/{username}/status/{tweet_id}"
+            fxtwitter_url = f"https://fxtwitter.com/NFL/status/{tweet_id}"
             
             # Send to Discord
             await channel.send(fxtwitter_url)
@@ -150,7 +147,7 @@ async def tweet(ctx, url: str):
         try:
             await ctx.message.delete()
         except discord.errors.Forbidden:
-            print("⚠️ Bot lacks 'Manage Messages' permission - cannot delete command")
+            print("⚠️ Bot lacks 'Manage Messages' permission")
         except Exception as e:
             print(f"⚠️ Could not delete message: {e}")
         
